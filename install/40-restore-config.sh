@@ -78,15 +78,27 @@ step_hermes() {
     for f in .env config.yaml auth.json AGENTS.md SOUL.md channel_directory.json install_id; do
         place "hermes/$f" "$h/$f"
     done
-    for d in memories cron hooks plugins skills; do
+    for d in memories cron hooks plugins skills platforms; do
         place "hermes/$d" "$h/$d"
     done
+    # Gateway state: keeps the Discord bot from re-registering its slash
+    # commands on first run. The credentials themselves are in .env.
+    place hermes/gateway/discord_command_sync_state.json \
+        "$h/gateway/discord_command_sync_state.json"
+
     place hermes/state.db    "$h/state.db"
     place hermes/kanban.db   "$h/kanban.db"
     place hermes/projects.db "$h/projects.db"
+
     # .env and auth.json are the crown jewels; nothing but the owner reads them.
     chmod 600 "$h/.env" "$h/auth.json" 2>/dev/null || true
-    ok "hermes config restored to $h"
+
+    # Report what actually landed, so a half-empty bundle is visible now rather
+    # than the first time Hermes cannot find a key.
+    local nkeys nskills
+    nkeys="$(grep -cE '^[A-Z_0-9]+=' "$h/.env" 2>/dev/null || echo 0)"
+    nskills="$(find "$h/skills" -maxdepth 1 -mindepth 1 -type d -not -name '.*' 2>/dev/null | wc -l)"
+    ok "hermes restored to $h — ${nkeys} env keys, ${nskills} skills"
 }
 
 # --- claude code ------------------------------------------------------------
@@ -187,6 +199,30 @@ step_rewrite() {
     done
     ok "rewrote Windows paths in $n file(s); originals kept as *.windows-$STAMP"
 
+    # config.yaml gets targeted edits only. The blanket backslash-to-slash rule
+    # above is safe in prose but not in YAML, where a backslash can be a string
+    # escape or part of a regex — converting those silently changes behaviour.
+    local cfg="$HOME_DIR/.hermes/config.yaml"
+    if [[ -f "$cfg" ]] && grep -qE '^[[:space:]]*cwd:[[:space:]]*[A-Za-z]:' "$cfg"; then
+        cp -a "$cfg" "$cfg.windows-$STAMP"
+        # terminal.cwd is where Hermes runs shell commands. On Windows it was a
+        # projects drive that does not exist here; the repos are the closest
+        # equivalent on the VPS.
+        sed -i -E "s|^([[:space:]]*cwd:[[:space:]]*)[A-Za-z]:[^[:space:]]*|\1${REPOS_DIR}|" "$cfg"
+        chown "$DEPLOY_USER:$DEPLOY_USER" "$cfg"
+        ok "config.yaml: terminal.cwd -> $REPOS_DIR"
+    fi
+
+    # Anything else with a drive letter in it is reported, not guessed at. The
+    # leading (^|[^A-Za-z]) matters: a bare [A-Za-z]:[\\/] also matches every
+    # https:// and docker:// in the file, and a warning that always fires is a
+    # warning nobody reads.
+    local drive_re='(^|[^A-Za-z])[A-Za-z]:[\\/]'
+    if [[ -f "$cfg" ]] && grep -qE "$drive_re" "$cfg"; then
+        warn "config.yaml still mentions Windows paths:"
+        grep -nE "$drive_re" "$cfg" | head -5 | sed 's/^/      /'
+    fi
+
     # Same problem in the MCP config: local stdio servers reference Windows
     # paths that do not exist here. Flag rather than guess.
     if [[ -f "$HOME_DIR/.claude.json" ]] && grep -qE '[A-Z]:\\\\' "$HOME_DIR/.claude.json"; then
@@ -224,6 +260,25 @@ step_codex
 step_vault
 step_rewrite
 step_appenv
+
+# --- gateway: one poller only ------------------------------------------------
+# The restored .env carries live Telegram and Discord bot tokens. Both bots are
+# currently connected from the Windows machine, and a bot token is not
+# something two processes can share: Telegram's getUpdates hands the long-poll
+# to whoever asked last, so two gateways fight over every message and each one
+# sees roughly half of them. Discord tolerates the second connection but then
+# answers everything twice.
+#
+# Nothing here starts the gateway, precisely so this is your decision.
+if grep -qE '^(TELEGRAM_BOT_TOKEN|DISCORD_BOT_TOKEN)=.+' "$HOME_DIR/.hermes/.env" 2>/dev/null; then
+    printf '\n'
+    warn "The Hermes gateway tokens were restored, but the gateway was NOT started."
+    warn "Stop the gateway on Windows before starting it here — one bot token"
+    warn "cannot be polled from two machines without messages going missing."
+    warn ""
+    warn "  windows :  close Hermes, or disable Hermes_Gateway.vbs at startup"
+    warn "  vps     :  hermes gateway run     (then add a systemd unit to keep it up)"
+fi
 
 # --- destroy the bundle -----------------------------------------------------
 info "shredding the bundle (it is plaintext credentials once decrypted)"

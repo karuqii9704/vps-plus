@@ -83,15 +83,42 @@ Step 'Hermes Agent'
 # same tree is ~/.hermes, so it is staged under that name.
 $hermesLocal = Join-Path $env:LOCALAPPDATA 'hermes'
 
+# .env carries every API key Hermes uses (~31 of them: OpenAI, DeepSeek, GLM,
+# OpenRouter, Google, Tavily, Figma, plus the Discord and Telegram bot tokens).
+# auth.json is the Nous account session. config.yaml is everything else.
+#
+# install_id is deliberately NOT copied: it identifies this Windows install,
+# and two machines reporting the same id is worse than letting the VPS mint
+# its own on first run.
 foreach ($f in '.env', 'config.yaml', 'auth.json', 'AGENTS.md', 'SOUL.md',
-                'channel_directory.json', 'install_id') {
+                'channel_directory.json') {
     Grab (Join-Path $hermesLocal $f) "hermes/$f"
 }
 Grab (Join-Path $hermesLocal 'memories') 'hermes/memories'
 Grab (Join-Path $hermesLocal 'cron')     'hermes/cron'
 Grab (Join-Path $hermesLocal 'hooks')    'hermes/hooks'
 Grab (Join-Path $hermesLocal 'plugins')  'hermes/plugins'
-Grab (Join-Path $hermesLocal 'skills')   'hermes/skills'
+
+# skills/ is 110 MB, but 68 MB of that is .curator_backups and .archive — old
+# revisions you have never needed on this machine, let alone the VPS. The 71
+# real skills are about 6 MB; .hub is a 36 MB cache that is kept because it is
+# not obvious it re-downloads on demand.
+Grab (Join-Path $hermesLocal 'skills') 'hermes/skills' -Exclude @('.archive', '.curator_backups')
+
+# --- gateway ----------------------------------------------------------------
+# The Telegram and Discord bridge. Its credentials live in .env and its channel
+# map in channel_directory.json, both already collected; this is the remaining
+# state that would otherwise make the bot re-register its slash commands.
+#
+# Hermes_Gateway.cmd and .vbs are Windows launchers and are pointedly not
+# copied — systemd is what starts the gateway on the VPS.
+Grab (Join-Path $hermesLocal 'gateway\discord_command_sync_state.json') 'hermes/gateway/discord_command_sync_state.json'
+Grab (Join-Path $hermesLocal 'platforms') 'hermes/platforms'
+
+# Small enough to be worth taking, unlike state.db: the kanban board and the
+# project list are real data you would have to rebuild by hand.
+Grab (Join-Path $hermesLocal 'kanban.db')   'hermes/kanban.db'
+Grab (Join-Path $hermesLocal 'projects.db') 'hermes/projects.db'
 
 # The other Hermes config root, used when Hermes runs under WSL/Git-Bash.
 Grab (Join-Path $env:USERPROFILE '.hermes\AGENTS.md') 'hermes/AGENTS.wsl.md'
@@ -99,9 +126,7 @@ Grab (Join-Path $env:USERPROFILE '.hermes\.env')      'hermes/.env.wsl'
 
 if ($IncludeHermesState) {
     Warn 'Including state.db (~370 MB). Hermes MUST be closed or the copy will be corrupt.'
-    Grab (Join-Path $hermesLocal 'state.db')    'hermes/state.db'
-    Grab (Join-Path $hermesLocal 'kanban.db')   'hermes/kanban.db'
-    Grab (Join-Path $hermesLocal 'projects.db') 'hermes/projects.db'
+    Grab (Join-Path $hermesLocal 'state.db') 'hermes/state.db'
 } else {
     Say 'state.db skipped (default) - pass -IncludeHermesState to bring session history'
 }

@@ -73,6 +73,33 @@ you want to move off Supabase later. If the goal is eventually to drop Supabase
 too, that is a per-app data migration, not a hosting change, and it is not in
 scope here.
 
+## The Hermes gateway cannot run in two places
+
+Your gateway is connected to Telegram and Discord. Both tokens are in `.env`,
+so they travel with the bundle and the VPS could start a second gateway on the
+same bots — but a bot token is not shareable.
+
+Telegram hands the `getUpdates` long-poll to whichever client asked most
+recently, so two gateways end up seeing roughly half the messages each, with no
+error to tell you why. Discord accepts the second connection and then answers
+every message twice.
+
+Stage 40 restores the credentials and deliberately does **not** start the
+gateway. Stop it on Windows first, then on the VPS:
+
+```bash
+hermes gateway run
+```
+
+Once it works, give it a systemd unit so it survives a reboot. There is no unit
+in this repo, because whether the gateway should live on the VPS at all is a
+decision about where you want your bots answering from.
+
+What travels: `channel_directory.json` (the channel map) and
+`gateway/discord_command_sync_state.json` (stops the bot re-registering its
+slash commands). What does not: `Hermes_Gateway.cmd` and `.vbs`, which are
+Windows launchers, and the runtime lock/pid/heartbeat files.
+
 ## Hermes session history does not come along
 
 `state.db` is 370 MB and is being written to whenever Hermes runs. The export

@@ -33,11 +33,26 @@ Close Hermes and Claude Code first, so nothing is mid-write.
 powershell -ExecutionPolicy Bypass -File .\export\export-from-windows.ps1
 ```
 
-This collects your agent configs, memories, skills vault and the four apps'
-`.env` files into one bundle. It leaves out the 370 MB Hermes `state.db` by
-default — a live SQLite file copied while Hermes runs is a corrupt one, and
-session history is the cheapest thing to give up. Pass `-IncludeHermesState`
-if you want it anyway.
+This collects, in one bundle:
+
+- **Hermes** — `config.yaml`, all 31 API keys from `.env`, the `auth.json`
+  session, `AGENTS.md`, `SOUL.md`, memories, cron, hooks, plugins, the 71
+  installed skills, the kanban and project databases, and the gateway's
+  Telegram/Discord channel map
+- **Claude Code** — `CLAUDE.md`, settings, credentials, commands, agents, skills
+- **Gemini CLI** and **Codex** — config and logins
+- The **skills vault** from `F:\Claude Work\PROJECTS\AI-Agent-Skills-Vault`
+- The four apps' `.env` files
+
+Deliberately left behind: the 370 MB Hermes `state.db` (a live SQLite file
+copied while Hermes runs is a corrupt one — pass `-IncludeHermesState` if you
+want session history anyway), 68 MB of `.curator_backups` and `.archive` inside
+`skills/`, the Windows-only gateway launchers, and `install_id`.
+
+**Do not start the Hermes gateway on the VPS while it is still running on
+Windows.** One bot token cannot be polled from two machines — see
+[docs/MIGRATION-NOTES.md](docs/MIGRATION-NOTES.md). Stage 40 restores the
+credentials but never starts the gateway, so this stays your call.
 
 If `age` is installed (`winget install FiloSottile.age`) the bundle is
 encrypted with a passphrase. If not, it is plaintext on disk — `scp` still
