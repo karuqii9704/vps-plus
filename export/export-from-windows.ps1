@@ -22,7 +22,7 @@
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\export\export-from-windows.ps1
-    scp .\vps-plus-bundle.tar.gz.age rifqi@your.vps.ip:~/
+    scp .\vps-plus-bundle.tar.gz.age deploy@your.vps.ip:~/
 
 .NOTES
     Close Hermes and Claude Code before running, so no file is mid-write.

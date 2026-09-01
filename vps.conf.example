@@ -9,7 +9,7 @@
 # --- identity ---------------------------------------------------------------
 # The non-root user that owns /srv, runs docker, and that you SSH in as.
 # bootstrap.sh creates it if it does not exist and copies root's authorized_keys.
-DEPLOY_USER=rifqi
+DEPLOY_USER=deploy
 TIMEZONE=Asia/Jakarta
 
 # --- where things land ------------------------------------------------------
@@ -27,7 +27,8 @@ DOMAIN_STUDIO=studio.plusthe.site   # studio-plusthesite (Vite SPA + Express AI 
 DOMAIN_TRILUX=                      # trilux-design-page — fill in, e.g. triluxdesign.com
 DOMAIN_NALAR=                       # new-nalar — fill in, e.g. nalar.plusthe.site
 
-LETSENCRYPT_EMAIL=rifqisigwannugraha@gmail.com
+# Let's Encrypt sends expiry warnings here. Use a mailbox you actually read.
+LETSENCRYPT_EMAIL=you@example.com
 
 # --- repositories -----------------------------------------------------------
 # Cloned over HTTPS. Private repos need a GitHub token in the bundle

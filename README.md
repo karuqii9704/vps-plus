@@ -46,13 +46,13 @@ encrypts it in transit, but delete it afterwards.
 ### 2. Ship it
 
 ```bash
-scp vps-plus-bundle.tar.gz.age rifqi@your.vps.ip:~/
+scp vps-plus-bundle.tar.gz.age deploy@your.vps.ip:~/
 ```
 
 ### 3. Bootstrap
 
 ```bash
-ssh rifqi@your.vps.ip
+ssh deploy@your.vps.ip
 git clone <this-repo> /srv/vps-plus && cd /srv/vps-plus
 cp vps.conf.example vps.conf && nano vps.conf   # domains, mainly
 sudo ./bootstrap.sh
