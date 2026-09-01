@@ -167,18 +167,20 @@ step_rewrite() {
         [[ -f "$f" ]] || continue
         cp -a "$f" "$f.windows-$STAMP"
         # Longest paths first, so the vault rewrite is not eaten by the F:\ one.
+        # The last rule needs the bracket class: GNU sed parses `s|\\|/|g` as
+        # an alternation operator eating the delimiter, and aborts with
+        # "unterminated `s' command". Do not "simplify" it back.
         sed -i \
             -e 's|F:\\Claude Work\\PROJECTS\\AI-Agent-Skills-Vault|/srv/skills-vault|g' \
             -e 's|F:/Claude Work/PROJECTS/AI-Agent-Skills-Vault|/srv/skills-vault|g' \
-            -e "s|C:\\\\Users\\\\karuqii9704\\\\.claude|$HOME_DIR/.claude|g" \
-            -e "s|C:/Users/karuqii9704/.claude|$HOME_DIR/.claude|g" \
-            -e "s|C:\\\\Users\\\\karuqii9704|$HOME_DIR|g" \
+            -e "s|C:\\\\Users\\\\[A-Za-z0-9._-]*|$HOME_DIR|g" \
+            -e "s|C:/Users/[A-Za-z0-9._-]*|$HOME_DIR|g" \
             -e 's|F:\\CLAUDE|/srv/claude-work|g' \
             -e 's|F:\\Claude Work\\PROJECTS|/srv/projects|g' \
             -e 's|E:\\PLUSSSSS|'"$REPOS_DIR"'|g' \
             -e 's|F:\\Trilux Design|'"$REPOS_DIR"'/trilux-design-page|g' \
             -e 's|F:\\NEW NALAR|'"$REPOS_DIR"'/new-nalar|g' \
-            -e 's|\\|/|g' \
+            -e 's|[\\]|/|g' \
             "$f"
         chown "$DEPLOY_USER:$DEPLOY_USER" "$f"
         n=$((n+1))
