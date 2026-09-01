@@ -1,0 +1,81 @@
+# vps-plus configuration.
+#
+#   cp vps.conf.example vps.conf   &&   $EDITOR vps.conf
+#
+# bootstrap.sh sources this file. Everything the migration needs to know that
+# is specific to *your* machine lives here and nowhere else. No secrets: API
+# keys and tokens travel in the encrypted bundle from export/, never in git.
+
+# --- identity ---------------------------------------------------------------
+# The non-root user that owns /srv, runs docker, and that you SSH in as.
+# bootstrap.sh creates it if it does not exist and copies root's authorized_keys.
+DEPLOY_USER=rifqi
+TIMEZONE=Asia/Jakarta
+
+# --- where things land ------------------------------------------------------
+SRV_ROOT=/srv/vps-plus          # this repo, once cloned onto the VPS
+REPOS_DIR=/srv/repos            # the four application checkouts
+DATA_DIR=/srv/data              # postgres volume, backups, uploads
+
+# --- domains ----------------------------------------------------------------
+# One per app. Point each A record at the VPS IP *before* running with
+# INSTALL_TLS=1, or certbot will fail the HTTP-01 challenge.
+# Leave a value empty to skip that app entirely (no vhost, no container).
+DOMAIN_PLUS=www.plusthe.site        # plusthesite- (Next.js marketing site)
+ALT_DOMAIN_PLUS=plusthe.site        # apex, 301-redirected to DOMAIN_PLUS. Optional.
+DOMAIN_STUDIO=studio.plusthe.site   # studio-plusthesite (Vite SPA + Express AI proxy)
+DOMAIN_TRILUX=                      # trilux-design-page — fill in, e.g. triluxdesign.com
+DOMAIN_NALAR=                       # new-nalar — fill in, e.g. nalar.plusthe.site
+
+LETSENCRYPT_EMAIL=rifqisigwannugraha@gmail.com
+
+# --- repositories -----------------------------------------------------------
+# Cloned over HTTPS. Private repos need a GitHub token in the bundle
+# (GH_TOKEN) or an SSH key in ~/.ssh — see docs/SECRETS.md.
+REPO_PLUS=https://github.com/plusthesite/plusthesite-.git
+REPO_STUDIO=https://github.com/karuqii9704/studio-plusthesite.git
+REPO_TRILUX=https://github.com/karuqii9704/trilux-design-page.git
+REPO_NALAR=https://github.com/karuqii9704/new-nalar.git
+
+BRANCH_PLUS=main
+BRANCH_STUDIO=main
+BRANCH_TRILUX=master
+BRANCH_NALAR=main
+
+# The Obsidian skills vault is not a git repo on Windows. Leave this empty to
+# rsync it from the bundle; set a URL once you have pushed it to GitHub.
+REPO_SKILLS_VAULT=
+
+# --- internal ports (bound to 127.0.0.1 only; nginx is the sole public face) -
+PORT_PLUS=3000
+PORT_STUDIO=8787
+PORT_TRILUX=8080
+PORT_NALAR=3001
+PORT_POSTGRES=5432
+
+# --- what to install --------------------------------------------------------
+# Flip to 0 to skip a stage. bootstrap.sh is idempotent, so re-running with a
+# different set is safe: finished stages detect their own work and no-op.
+INSTALL_BASE=1        # user, ufw, fail2ban, swap, unattended-upgrades
+INSTALL_DOCKER=1      # docker engine + compose plugin
+INSTALL_NODE=1        # node 22 via nvm, plus bun and pnpm
+INSTALL_AI_CLIS=1     # claude code, gemini cli, codex, hermes agent
+RESTORE_CONFIG=1      # unpack the encrypted bundle into ~/.hermes, ~/.claude, ...
+INSTALL_REPOS=1       # clone the four apps + skills vault
+INSTALL_POSTGRES=1    # postgres 17 container + per-app databases
+INSTALL_APPS=1        # build and run the four app containers
+INSTALL_NGINX=1       # reverse proxy vhosts
+INSTALL_TLS=1         # certbot certificates (needs DNS pointing here already)
+
+# --- postgres ---------------------------------------------------------------
+# The superuser password is generated on first run and written to
+# stack/stack.env (chmod 600, gitignored). Set it here only to pin a value.
+POSTGRES_VERSION=17
+POSTGRES_USER=vpsplus
+POSTGRES_PASSWORD=
+# One database per app that actually needs one.
+POSTGRES_DATABASES="plusthesite nalar trilux"
+
+# --- misc -------------------------------------------------------------------
+SWAP_SIZE_GB=2        # 0 to skip. Anything under 4 GB RAM wants swap for builds.
+SSH_PORT=22

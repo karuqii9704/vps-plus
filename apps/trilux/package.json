@@ -1,0 +1,14 @@
+{
+  "name": "vpsplus-trilux-host",
+  "private": true,
+  "type": "module",
+  "description": "Express host for the Trilux static site and its Vercel-style api/ handlers.",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "dependencies": {
+    "@vercel/blob": "^1.1.1",
+    "compression": "^1.8.1",
+    "express": "^5.1.0"
+  },
+  "engines": { "node": ">=22" }
+}

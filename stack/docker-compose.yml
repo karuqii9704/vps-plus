@@ -1,0 +1,134 @@
+# The whole runtime, in one file.
+#
+# Every service binds to 127.0.0.1 only. Nginx on the host is the single public
+# listener, which means ufw needs exactly two open ports and nothing else can
+# be reached from the internet by accident.
+#
+# Profiles gate what runs. bootstrap.sh passes one --profile per app that has a
+# domain set in vps.conf, so an app with an empty DOMAIN_* never starts.
+#
+#   docker compose --profile db --profile plus up -d
+#
+# Paths come from vps.conf via stack.env, written by install/60-postgres.sh.
+
+name: vpsplus
+
+x-common: &common
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+networks:
+  vpsplus:
+    name: vpsplus
+
+volumes:
+  pgdata:
+    name: vpsplus_pgdata
+
+services:
+
+  # ---------------------------------------------------------------------------
+  postgres:
+    profiles: [db]
+    image: postgres:${POSTGRES_VERSION:-17}-alpine
+    container_name: vpsplus-postgres
+    <<: *common
+    networks: [vpsplus]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: postgres
+      # Per-app databases are created by the init script on first boot only.
+      APP_DATABASES: ${POSTGRES_DATABASES}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      # Loopback only. Reach it from your laptop with an SSH tunnel:
+      #   ssh -L 5432:127.0.0.1:5432 user@vps
+      - "127.0.0.1:${PORT_POSTGRES:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    shm_size: 256mb
+
+  # ---------------------------------------------------------------------------
+  # plus. — Next.js marketing site. Its own Dockerfile already targets a VPS
+  # (output: "standalone"), so nothing here overrides it.
+  plus:
+    profiles: [plus]
+    container_name: vpsplus-plus
+    <<: *common
+    networks: [vpsplus]
+    build:
+      context: ${REPOS_DIR}/plusthesite-
+      # NEXT_PUBLIC_* is inlined into the browser bundle at build time, so a
+      # change to any of these needs a rebuild, not a restart.
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
+        NEXT_PUBLIC_STUDIO_URL: ${NEXT_PUBLIC_STUDIO_URL:-}
+        NEXT_PUBLIC_HERO_SHADER: ${NEXT_PUBLIC_HERO_SHADER:-off}
+    env_file: [./apps/plus.env]
+    ports: ["127.0.0.1:${PORT_PLUS:-3000}:3000"]
+
+  # ---------------------------------------------------------------------------
+  # PLUS Studio — Vite SPA served by the same Express process that proxies AI
+  # calls, so the Gemini key never reaches the browser.
+  studio:
+    profiles: [studio]
+    container_name: vpsplus-studio
+    <<: *common
+    networks: [vpsplus]
+    build:
+      context: ${REPOS_DIR}/studio-plusthesite
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:-}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY:-}
+        VITE_MAIN_SITE_URL: ${VITE_MAIN_SITE_URL:-}
+    env_file: [./apps/studio.env]
+    ports: ["127.0.0.1:${PORT_STUDIO:-8787}:8787"]
+
+  # ---------------------------------------------------------------------------
+  # Trilux — a static site plus three Vercel serverless handlers. The image is
+  # a thin Express host for those handlers; the site itself is bind-mounted, so
+  # a content change is `git pull` + `restart`, with no rebuild at all.
+  trilux:
+    profiles: [trilux]
+    container_name: vpsplus-trilux
+    <<: *common
+    networks: [vpsplus]
+    build:
+      context: ${SRV_ROOT}/apps/trilux
+    env_file: [./apps/trilux.env]
+    environment:
+      SITE_ROOT: /site
+      PORT: 8080
+    volumes:
+      - ${REPOS_DIR}/trilux-design-page:/site:ro
+    ports: ["127.0.0.1:${PORT_TRILUX:-8080}:8080"]
+
+  # ---------------------------------------------------------------------------
+  # NALAR — Next.js, no Dockerfile in its own repo, so one lives in apps/nalar.
+  nalar:
+    profiles: [nalar]
+    container_name: vpsplus-nalar
+    <<: *common
+    networks: [vpsplus]
+    build:
+      context: ${REPOS_DIR}/new-nalar
+      dockerfile: ${SRV_ROOT}/apps/nalar/Dockerfile
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NALAR_NEXT_PUBLIC_SUPABASE_URL:-}
+        NEXT_PUBLIC_MAPS_KEY: ${NALAR_NEXT_PUBLIC_MAPS_KEY:-}
+        NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: ${NALAR_NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:-}
+    env_file: [./apps/nalar.env]
+    environment:
+      PORT: 3000
+    ports: ["127.0.0.1:${PORT_NALAR:-3001}:3000"]

@@ -1,0 +1,24 @@
+# --- secrets ----------------------------------------------------------------
+# Anything below holds a live credential. The repo is designed so that losing
+# it publicly would be embarrassing, not catastrophic — keep it that way.
+vps.conf
+stack/stack.env
+stack/apps/*.env
+!stack/apps/*.env.example
+
+# The migration bundle: plaintext API keys and OAuth tokens once decrypted.
+vps-plus-bundle.tar.gz
+vps-plus-bundle.tar.gz.age
+*.bundle.tar.gz
+
+# --- generated --------------------------------------------------------------
+.state/
+backups/
+*.log
+*.pre-restore-*
+*.windows-*
+
+# --- os ---------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini

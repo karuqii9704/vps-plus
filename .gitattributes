@@ -1,0 +1,21 @@
+# Authored on Windows, executed on Linux. A shell script checked out with CRLF
+# fails as `/usr/bin/env: 'bash\r': No such file or directory`, which is a
+# baffling error to debug at 2am — so every file the VPS executes is pinned to
+# LF regardless of core.autocrlf.
+* text=auto eol=lf
+
+*.sh        text eol=lf
+Dockerfile  text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.conf      text eol=lf
+*.template  text eol=lf
+*.env       text eol=lf
+*.example   text eol=lf
+
+# The export script runs on Windows; PowerShell copes with either, but CRLF is
+# what every other tool there produces.
+*.ps1       text eol=crlf
+
+*.png binary
+*.jpg binary
