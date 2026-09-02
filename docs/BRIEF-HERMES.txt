@@ -1,0 +1,284 @@
+=============================================================================
+ BRIEF UNTUK HERMES — MIGRASI VPS
+ Salin seluruh isi file ini sebagai pesan pertama ke Hermes di VPS.
+=============================================================================
+
+Kamu berjalan di sebuah VPS Ubuntu 24.04 yang baru dipasang. Tugasmu adalah
+memindahkan lingkungan kerja dari mesin Windows pemilikmu ke VPS ini, memakai
+repo yang sudah disiapkan. Ikuti urutan di bawah. Jangan melompat.
+
+-----------------------------------------------------------------------------
+ ATURAN — BACA DULU SEBELUM MENJALANKAN APA PUN
+-----------------------------------------------------------------------------
+
+Empat hal ini TIDAK BOLEH kamu lakukan sendiri. Berhenti dan tanya dulu:
+
+ 1. Mengubah DNS (ops/dns.sh --apply).
+    plusthe.site sekarang MASIH HIDUP di Vercel dan melayani pengunjung nyata.
+    Memindahkan DNS sebelum VPS terbukti melayani = situs mati untuk semua
+    orang, selama TTL lama. Ini titik yang tidak bisa dibatalkan cepat.
+
+ 2. Menyalakan Hermes gateway (hermes gateway run).
+    Gateway masih hidup di mesin Windows. Satu token bot Telegram tidak bisa
+    di-poll dua mesin — masing-masing hanya melihat separuh pesan, TANPA error
+    apa pun. Discord akan menjawab dua kali. Pemilik yang memutuskan kapan
+    pindah.
+
+ 3. Mematikan login SSH root.
+    Kalau salah, VPS terkunci selamanya.
+
+ 4. Apa pun yang menghapus data: docker system prune -a, git reset --hard,
+    git checkout -f, DROP DATABASE, rm -rf di luar /tmp.
+
+Selain itu, jalan saja. Laporkan hasil tiap langkah sebelum lanjut.
+
+-----------------------------------------------------------------------------
+ LANGKAH 0 — LIHAT KONDISI SEKARANG
+-----------------------------------------------------------------------------
+
+Jangan berasumsi apa pun sudah atau belum dikerjakan. Cek dulu:
+
+    cat /etc/os-release | head -2
+    ls -la /var/lib/vps-plus/ 2>/dev/null || echo "bootstrap belum pernah jalan"
+    ls -d /srv/vps-plus 2>/dev/null || echo "repo belum di-clone"
+    ls -la ~/vps-plus-bundle.tar.gz* /root/vps-plus-bundle.tar.gz* 2>/dev/null || echo "bundle belum ada"
+    command -v docker hermes claude gemini codex
+
+File di /var/lib/vps-plus/ adalah stempel stage yang sudah selesai. Kalau ada
+isinya, bootstrap sudah pernah jalan sebagian — lanjutkan dari situ, jangan
+ulang dari nol.
+
+Laporkan apa yang kamu temukan sebelum lanjut ke langkah 1.
+
+-----------------------------------------------------------------------------
+ LANGKAH 1 — CLONE REPO
+-----------------------------------------------------------------------------
+
+Lewati kalau /srv/vps-plus sudah ada.
+
+    apt update && apt install -y git
+    git clone https://github.com/karuqii9704/vps-plus.git /srv/vps-plus
+    cd /srv/vps-plus
+
+Lalu BACA dua file ini sebelum menjalankan apa pun. Keduanya berisi hal yang
+akan membuatmu salah langkah kalau dilewati:
+
+    cat /srv/vps-plus/CLAUDE.md
+    cat /srv/vps-plus/docs/MIGRATION-NOTES.md
+
+-----------------------------------------------------------------------------
+ LANGKAH 2 — PASTIKAN BUNDLE SUDAH ADA
+-----------------------------------------------------------------------------
+
+Bundle berisi config, 31 API key, login, memories, 71 skill, dan skills vault
+dari mesin Windows. Tanpa ini, semua agent terpasang dalam keadaan kosong dan
+belum login.
+
+    ls -la /root/vps-plus-bundle.tar.gz*
+
+Kalau BELUM ADA: berhenti. Minta pemilik menjalankan ini di Windows —
+
+    powershell -ExecutionPolicy Bypass -File "F:\VPS Plus\export\export-from-windows.ps1"
+    scp "F:\VPS Plus\vps-plus-bundle.tar.gz.age" root@<IP-VPS>:/root/
+
+Hermes dan Claude Code di Windows harus DITUTUP dulu saat export, karena file
+SQLite yang disalin saat sedang ditulis akan rusak.
+
+Jangan lanjut ke langkah 4 sebelum bundle ada.
+
+-----------------------------------------------------------------------------
+ LANGKAH 3 — ISI vps.conf
+-----------------------------------------------------------------------------
+
+    cd /srv/vps-plus
+    cp vps.conf.example vps.conf
+
+Yang perlu diubah hanya empat baris. Sisanya biarkan default:
+
+    DEPLOY_USER=          <- tanyakan ke pemilik, contoh: rifqi
+    LETSENCRYPT_EMAIL=    <- tanyakan ke pemilik
+    DOMAIN_TRILUX=        <- BIARKAN KOSONG, pemilik belum memutuskan
+    DOMAIN_NALAR=         <- BIARKAN KOSONG, pemilik belum memutuskan
+
+Dua domain yang sudah pasti dan sudah terisi benar di file contoh:
+    DOMAIN_PLUS=www.plusthe.site
+    ALT_DOMAIN_PLUS=plusthe.site
+    DOMAIN_STUDIO=studio.plusthe.site
+
+App yang DOMAIN-nya kosong akan dilewati sepenuhnya — tidak ada vhost, tidak
+ada container. Itu perilaku yang diinginkan. Trilux dan NALAR ditambahkan
+nanti setelah pemilik memilih domainnya.
+
+JANGAN menebak nama domain. JANGAN commit vps.conf (sudah di-gitignore).
+
+-----------------------------------------------------------------------------
+ LANGKAH 4 — BOOTSTRAP
+-----------------------------------------------------------------------------
+
+    cd /srv/vps-plus
+    ./bootstrap.sh
+
+Perlu 40-90 menit. Yang paling lama: stage 30 (Hermes menarik dependensi
+Python) dan stage 70 (empat build container, sengaja berurutan supaya tidak
+kena OOM).
+
+Sepuluh stage, semuanya idempoten dan diberi stempel:
+
+    00-base            user, ufw, fail2ban, swap, patch keamanan
+    10-docker          Docker Engine + Compose
+    20-node            Node 22 lewat nvm, bun
+    30-ai-clis         Claude Code, Gemini, Codex, Hermes
+    40-restore-config  bongkar bundle, tulis ulang path Windows, hapus bundle
+    50-repos           clone empat aplikasi
+    60-postgres        container Postgres + database per app
+    70-apps            build + jalankan container
+    80-nginx           satu vhost per app
+    90-tls             sertifikat certbot
+
+Kalau ada stage gagal, bootstrap berhenti dan menyebut stage mana. Perbaiki
+penyebabnya, lalu ulangi stage itu saja:
+
+    ./bootstrap.sh --force 70
+
+Stage 90 kemungkinan besar akan SKIP dan itu normal — DNS belum diarahkan ke
+sini. Jangan paksa. Itu ditangani di langkah 7.
+
+Log lengkap ada di /var/log/vps-plus-<timestamp>.log
+
+-----------------------------------------------------------------------------
+ LANGKAH 5 — VERIFIKASI
+-----------------------------------------------------------------------------
+
+    /srv/vps-plus/ops/status.sh
+
+Baca tiga bagian:
+
+  endpoints  Kolom "local" harus 200 untuk plus dan studio. Kolom publik akan
+             gagal — itu wajar, DNS masih ke Vercel.
+  postgres   Harus "accepting connections".
+  agents     Empat versi. Kalau ada yang "not installed", ulangi:
+             ./bootstrap.sh --force 30
+
+Kalau port lokal gagal, aplikasinya yang rusak. Lihat lognya:
+
+    /srv/vps-plus/ops/logs.sh plus 200
+
+Lalu uji dengan browser sungguhan, melewati DNS dan nginx:
+
+    /srv/vps-plus/ops/smoke.sh --local
+
+Ini menangkap yang tidak dilihat status.sh: halaman yang mengembalikan HTTP
+200 tapi kosong karena bundle JavaScript-nya error — cara khas gagalnya
+NEXT_PUBLIC_* yang tidak terisi.
+
+Perintah pertama ke smoke.sh akan mengunduh Chromium (~150 MB). Itu wajar.
+
+LAPORKAN hasil status.sh dan smoke.sh ke pemilik. Berhenti di sini.
+
+-----------------------------------------------------------------------------
+ LANGKAH 6 — TUNGGU PERSETUJUAN
+-----------------------------------------------------------------------------
+
+Langkah 7 dan seterusnya memindahkan trafik sungguhan. Jangan lanjut tanpa
+pemilik mengatakan lanjut secara eksplisit.
+
+-----------------------------------------------------------------------------
+ LANGKAH 7 — CUTOVER DNS (butuh persetujuan)
+-----------------------------------------------------------------------------
+
+Pemilik harus memberikan token dari hPanel > Account > API:
+
+    export HOSTINGER_API_TOKEN=...
+
+Lihat rencananya dulu. Ini TIDAK mengubah apa pun:
+
+    /srv/vps-plus/ops/dns.sh
+
+Tunjukkan rencananya ke pemilik dan tunggu konfirmasi. Yang harus muncul:
+
+  - hapus CNAME di www.plusthe.site (sekarang menunjuk ke Vercel)
+  - set A www.plusthe.site      -> IP VPS
+  - set A plusthe.site          -> IP VPS
+  - set A studio.plusthe.site   -> IP VPS  (record baru, belum pernah ada)
+
+CNAME harus dihapus lebih dulu. Satu nama tidak bisa memegang CNAME dan A
+sekaligus, dan API Hostinger hanya menimpa record yang cocok nama DAN tipe —
+jadi menulis A saja akan meninggalkan CNAME-nya dan zone jadi tidak valid.
+
+Kalau rencananya benar DAN pemilik setuju:
+
+    /srv/vps-plus/ops/dns.sh --apply
+
+Lalu tunggu propagasi. Pantau:
+
+    dig +short www.plusthe.site
+    dig +short studio.plusthe.site
+
+-----------------------------------------------------------------------------
+ LANGKAH 8 — SERTIFIKAT
+-----------------------------------------------------------------------------
+
+Baru setelah semua nama resolve ke IP VPS:
+
+    cd /srv/vps-plus && ./bootstrap.sh --force 90
+
+Let's Encrypt hanya memberi 5 kegagalan validasi per jam per hostname. Kalau
+gagal, JANGAN langsung ulang. Cek dulu DNS-nya sudah benar-benar propagasi.
+
+Lalu verifikasi lewat URL publik:
+
+    /srv/vps-plus/ops/status.sh
+    /srv/vps-plus/ops/smoke.sh
+
+-----------------------------------------------------------------------------
+ LANGKAH 9 — LAPORKAN, JANGAN KERJAKAN
+-----------------------------------------------------------------------------
+
+Tiga hal ini sengaja tidak diotomatiskan. Ingatkan pemilik, jangan kerjakan:
+
+ 1. Gateway Hermes. Token Telegram dan Discord sudah ada di VPS tapi gateway
+    tidak dinyalakan. Pemilik harus mematikannya di Windows dulu.
+
+ 2. Login SSH root masih aktif. Setelah pemilik memastikan bisa masuk sebagai
+    DEPLOY_USER, dia yang menjalankan perintah untuk mematikannya.
+
+ 3. Backup. ops/backup.sh menulis ke disk yang sama dengan data yang
+    dilindunginya — itu snapshot, bukan backup, sampai disalin keluar VPS.
+
+Juga laporkan, jangan perbaiki sendiri:
+
+ - ~/.claude.json masih berisi path Windows (definisi MCP server). Sengaja
+   tidak ditulis ulang, karena menebak padanan Linux-nya menghasilkan server
+   yang gagal start dengan gejala yang menyerupai bug Claude Code.
+   Tampilkan saja: grep -o '[A-Z]:[^"]*' ~/.claude.json | sort -u
+
+ - Trilux masih bergantung pada Vercel Blob untuk api/lead.js dan
+   api/track.js. Jalan, tapi belum benar-benar lepas dari Vercel.
+
+ - NALAR tidak punya output: "standalone" di next.config.ts, jadi image-nya
+   ~1.1 GB alih-alih ~250 MB. Perbaikannya ada di repo NALAR, bukan di sini.
+
+-----------------------------------------------------------------------------
+ KALAU ADA YANG GAGAL
+-----------------------------------------------------------------------------
+
+Urutan diagnosa ada di /srv/vps-plus/CLAUDE.md. Ringkasnya:
+
+  ops/status.sh                    selalu mulai dari sini
+  port lokal gagal                 aplikasi rusak -> ops/logs.sh <app> 200
+  lokal jalan, publik tidak        nginx atau DNS -> nginx -t, lalu
+                                   tail /var/log/nginx/<app>.error.log
+  HTTPS gagal, HTTP jalan          sertifikat -> certbot certificates
+  build gagal tanpa error jelas    hampir selalu OOM -> free -h,
+                                   dmesg | grep -i oom
+
+Penting: repo ini BELUM PERNAH dijalankan di VPS mana pun sebelum ini. Semua
+script sudah dicek sintaksnya dan bagian yang bisa diuji tanpa server sudah
+diuji, tapi apt, docker build, installer Hermes, dan certbot belum pernah
+benar-benar dieksekusi. Wajar kalau ada satu-dua hal yang perlu diperbaiki.
+Itu sebabnya tiap stage diberi stempel dan ada --force.
+
+Kalau kamu memperbaiki sesuatu di dalam repo, laporkan apa yang kamu ubah
+supaya bisa di-commit ke hulu. Jangan diam-diam menambal.
+
+=============================================================================
