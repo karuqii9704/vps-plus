@@ -8,6 +8,42 @@ memindahkan lingkungan kerja dari mesin Windows pemilikmu ke VPS ini, memakai
 repo yang sudah disiapkan. Ikuti urutan di bawah. Jangan melompat.
 
 -----------------------------------------------------------------------------
+ SIAPA KAMU DI SINI
+-----------------------------------------------------------------------------
+
+Kamu instalasi Hermes BARU yang dipasang langsung di VPS ini. Kamu BUKAN
+Hermes milik pemilik yang sedang dimigrasikan. Perannya beda, dan ini penting
+supaya kamu tidak salah paham di stage 40.
+
+Kamu adalah operator sementara: config-mu kosong, model-mu dipilih saat
+install, dan kamu ada untuk menjalankan migrasi ini.
+
+Yang dimigrasikan adalah instalasi Hermes milik pemilik di Windows, dan
+tujuannya adalah home milik DEPLOY_USER — bukan home-mu. Kalau kamu jalan
+sebagai root dan DEPLOY_USER bernama lain, dua config itu tidak pernah
+bersentuhan:
+
+    /root/.hermes              <- kamu, operator, config kosong
+    /home/<DEPLOY_USER>/.hermes  <- hasil restore dari bundle
+
+Jadi saat stage 40 menulis config.yaml, .env berisi 31 API key, auth.json,
+memories, dan 71 skill — itu BUKAN punyamu dan bukan untuk kamu pakai. Jangan
+menyalinnya ke home-mu. Jangan memakai kredensialnya.
+
+SATU PENGECEKAN WAJIB sebelum stage 40. Kalau home-mu ternyata sama dengan
+home DEPLOY_USER, stage 40 akan menimpa config-mu sendiri saat kamu sedang
+berjalan di atasnya — termasuk model dan auth-mu. Cek dulu:
+
+    echo "home saya: $HOME"
+    grep '^DEPLOY_USER=' /srv/vps-plus/vps.conf
+
+Kalau keduanya menunjuk ke home yang sama, BERHENTI dan beri tahu pemilik
+sebelum menjalankan bootstrap. Kalau berbeda, lanjut normal.
+
+Setelah migrasi selesai, agent jangka panjang adalah yang berjalan sebagai
+DEPLOY_USER. Kamu boleh dibuang.
+
+-----------------------------------------------------------------------------
  ATURAN — BACA DULU SEBELUM MENJALANKAN APA PUN
 -----------------------------------------------------------------------------
 
@@ -156,8 +192,12 @@ Baca tiga bagian:
   endpoints  Kolom "local" harus 200 untuk plus dan studio. Kolom publik akan
              gagal — itu wajar, DNS masih ke Vercel.
   postgres   Harus "accepting connections".
-  agents     Empat versi. Kalau ada yang "not installed", ulangi:
-             ./bootstrap.sh --force 30
+  agents     Empat versi. Ini memeriksa PATH milik user yang menjalankan
+             perintah, jadi angka yang keluar mungkin milikmu, bukan milik
+             DEPLOY_USER. Untuk memeriksa milik DEPLOY_USER:
+                 su - <DEPLOY_USER> -c 'claude --version; hermes --version'
+             Kalau ada yang belum terpasang di sana:
+                 ./bootstrap.sh --force 30
 
 Kalau port lokal gagal, aplikasinya yang rusak. Lihat lognya:
 
@@ -237,7 +277,9 @@ Lalu verifikasi lewat URL publik:
 Tiga hal ini sengaja tidak diotomatiskan. Ingatkan pemilik, jangan kerjakan:
 
  1. Gateway Hermes. Token Telegram dan Discord sudah ada di VPS tapi gateway
-    tidak dinyalakan. Pemilik harus mematikannya di Windows dulu.
+    tidak dinyalakan. Pemilik harus mematikannya di Windows dulu. Kalaupun
+    dinyalakan nanti, yang menjalankannya adalah Hermes milik DEPLOY_USER —
+    bukan kamu. Kamu tidak punya token itu dan tidak seharusnya memakainya.
 
  2. Login SSH root masih aktif. Setelah pemilik memastikan bisa masuk sebagai
     DEPLOY_USER, dia yang menjalankan perintah untuk mematikannya.
