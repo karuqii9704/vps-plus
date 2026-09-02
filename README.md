@@ -23,6 +23,9 @@ sudo ./bootstrap.sh
 | **Runtime** | Docker Engine + Compose, Node 22 via nvm, bun |
 | **Host** | ufw (deny inbound except 22/80/443), fail2ban, unattended security upgrades, swap |
 
+New to this? [docs/RUNBOOK.md](docs/RUNBOOK.md) is the ordered checklist for a
+first migration, including the parts that have to happen before the VPS exists.
+
 ## The three steps
 
 ### 1. Export from Windows
@@ -132,7 +135,8 @@ apps/
   nalar/Dockerfile    NALAR has none of its own
   trilux/             Express host for Trilux's Vercel-style handlers
 ops/                  the day-two scripts
-docs/                 secrets handling, and what the Vercel move actually broke
+docs/                 the first-migration runbook, secrets handling, and what
+                      the move off Vercel actually left unfinished
 ```
 
 ## Things worth knowing before you run it

@@ -153,6 +153,11 @@ step_vault() {
     fi
 
     if [[ -d "$v/Skills/Active" ]]; then
+        # ln fails outright if the parent is missing, and a bundle without a
+        # skills/ directory is perfectly normal — this stage must not abort
+        # half way through, having already written credentials to disk.
+        install -d -o "$DEPLOY_USER" -g "$DEPLOY_USER" \
+            "$HOME_DIR/.hermes/skills" "$HOME_DIR/.claude/skills"
         ln -sfn "$v/Skills/Active" "$HOME_DIR/.hermes/skills/shared-vault"
         ln -sfn "$v/Skills/Active" "$HOME_DIR/.claude/skills/shared-vault"
         chown -h "$DEPLOY_USER:$DEPLOY_USER" \
