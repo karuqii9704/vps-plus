@@ -17,8 +17,21 @@ else
     chmod a+r /etc/apt/keyrings/docker.gpg
 
     . /etc/os-release
+    CODENAME="${UBUNTU_CODENAME:-$VERSION_CODENAME}"
+
+    # Docker publishes per Ubuntu codename, and a brand-new release can land
+    # months before they do. Checking turns "apt-get update failed" into a
+    # sentence that says what to do about it.
+    if ! curl -fsS -o /dev/null "https://download.docker.com/linux/ubuntu/dists/${CODENAME}/Release"; then
+        die "Docker has no repository for Ubuntu '${CODENAME}' yet.
+     Either wait for it, or pin the previous LTS by hand:
+       echo 'deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable' > /etc/apt/sources.list.d/docker.list
+     then re-run: sudo \$ROOT/bootstrap.sh --force 10"
+    fi
+    log "docker repository: ${CODENAME}"
+
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-https://download.docker.com/linux/ubuntu ${UBUNTU_CODENAME:-$VERSION_CODENAME} stable" \
+https://download.docker.com/linux/ubuntu ${CODENAME} stable" \
         > /etc/apt/sources.list.d/docker.list
 
     apt-get update -qq

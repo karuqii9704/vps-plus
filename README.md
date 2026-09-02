@@ -116,6 +116,8 @@ ops/logs.sh studio 200     follow a container's logs
 ops/psql.sh nalar          a psql shell, no password hunting
 ops/backup.sh              pg_dump + config snapshot, 14-day retention
 ops/update-agents.sh       update the four CLIs
+ops/smoke.sh               open all four sites in a real browser and check them
+ops/dns.sh                 point every domain here via the Hostinger DNS API
 ```
 
 ## Layout
