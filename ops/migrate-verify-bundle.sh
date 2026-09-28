@@ -36,7 +36,7 @@ REPOS_DIR="${REPOS_DIR:-/srv/repos}"
 
 # Paths rewritten continuously by running processes — a difference here is
 # drift, not damage.
-VOLATILE='^(home/[^/]+/\.claude|root/\.hermes|root/\.local/share/tirith|srv/hq/status|srv/plus-office/data/.*\.db|srv/notes/00-HQ/tasks\.md|.*/\.git/|.*/\.claude/|\.bundle-fingerprint)'
+VOLATILE='^(home/[^/]+/\.claude|root/\.hermes|root/\.local/share/tirith|srv/hq/status|srv/hq/inbox|srv/plus-office/data/.*\.db|srv/notes/00-HQ/tasks\.md|.*/\.git/|.*/\.claude/|\.bundle-fingerprint)'
 # Working trees of the app checkouts. These are NOT volatile by nature, but on
 # this box autonomous agents (srv/hq/run-agent.sh) write to them continuously,
 # so a difference here usually means uncommitted work rather than corruption.
@@ -104,7 +104,7 @@ if [[ $n_wt -gt 0 ]]; then
         [[ -d "$d/.git" ]] || continue
         br=$(git -C "$d" branch --show-current 2>/dev/null)
         dirty=$(git -C "$d" status --porcelain 2>/dev/null | wc -l)
-        warn "$repo: branch '$br', $dirty uncommitted path(s) — PUSH BEFORE MIGRATING"
+        note "$repo: branch '$br', $dirty uncommitted path(s) — PUSH BEFORE MIGRATING"
     done
 fi
 if [[ $n_real -gt 0 ]]; then
