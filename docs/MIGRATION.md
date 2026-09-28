@@ -74,7 +74,27 @@ Playwright E2E suite — while its `ojs/`/`ojs-git/` checkouts are re-clonable.
 The bundle contains **plaintext credentials**. It is written mode 700; keep it
 that way.
 
-Verify it, then push it:
+Verify it before trusting it. Two levels — the cheap one checks the checksums,
+the thorough one actually unpacks every archive and hashes the result against
+the live source:
+
+```
+# cheap: is the bundle internally intact?
+./ops/migrate-export.sh --verify /srv/data/migrate/bundle-<stamp>
+
+# thorough: is it a faithful copy of this box? (~6 min, needs ~5 GB in /tmp)
+./ops/migrate-verify-bundle.sh /srv/data/migrate/bundle-<stamp>
+```
+
+`migrate-verify-bundle.sh` unpacks into `/tmp/restore-sim` and compares every
+file byte-for-byte. Files under known live-write paths (`.claude`, `.hermes`,
+`srv/hq/status`, `*/​.git/index`) are classified as expected drift — agents and
+the gateway rewrite them continuously — and anything else is reported as a real
+finding. A non-zero table count in a Postgres dump is **not** required: two of
+the four app databases here are legitimately empty, so the script only fails a
+dump that is not a replayable `pg_dump`/`mysqldump` stream.
+
+Then push it:
 
 ```
 ./ops/migrate-export.sh --verify /srv/data/migrate/bundle-<stamp>
@@ -277,6 +297,30 @@ committing:
 find /srv -path '*/.git/*' -user root
 ```
 `migrate-import.sh --only ownership` fixes them.
+
+### Never blanket-chown the ecommerce checkout
+
+`chown -R <deploy>:<deploy> /srv/repos/ecommerce` breaks the app. Its container
+runs as **uid 33**, so:
+
+- `storage/` and `bootstrap/cache/` must be `www-data:www-data` (the app writes
+  sessions, logs, cache and uploads there)
+- `.env` must be `<deploy>:www-data` mode **640** — mode 600 or a group of
+  `<deploy>` locks the app out
+
+This fails **silently**. The site keeps answering **HTTP 200**, because Laravel
+boots from the cached `bootstrap/cache/config.php` and never opens `.env`; the
+breakage only surfaces on the next container restart or `config:clear`. Prove it
+from inside the container, as the app's uid — never as root:
+
+```
+docker exec vpsplus-ecommerce-fpm sh -c \
+  'head -c1 /srv/repos/ecommerce/.env >/dev/null && echo read-ok;
+   touch /srv/repos/ecommerce/storage/logs/.wtest && rm /srv/repos/ecommerce/storage/logs/.wtest && echo write-ok'
+```
+
+`migrate-import.sh --only ownership` blanket-chowns `/srv` and then re-applies
+these two settings; `--only verify` asserts them.
 
 ### The Supabase stack needs its roles first
 

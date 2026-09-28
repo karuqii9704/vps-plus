@@ -69,6 +69,7 @@ CONF_OUT="$DEST/config-${STAMP}.tar.gz"
 
 tar -czf "$CONF_OUT" \
     --warning=no-file-changed \
+    --exclude='*.sock' \
     --exclude='*/state.db*' \
     --exclude='*/cache' \
     --exclude='*/logs' \
@@ -85,7 +86,7 @@ tar -czf "$CONF_OUT" \
     "${SRV_ROOT#/}/stack/apps" \
     "${SRV_ROOT#/}/stack/stack.env" \
     "${SRV_ROOT#/}/vps.conf" \
-    2>/dev/null || warn "tar reported missing paths (usually harmless)"
+    2>/dev/null || warn "tar exited non-zero for the config archive — a live file changed while being read (the gateway writes to root/.hermes). Re-run if it matters."
 
 chmod 600 "$CONF_OUT"
 ok "$(basename "$CONF_OUT")  $(du -h "$CONF_OUT" | cut -f1)"

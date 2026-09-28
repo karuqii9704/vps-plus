@@ -151,6 +151,7 @@ ${ROOT_REL}/.hermes/logs
 ${ROOT_REL}/.hermes/audio_cache
 ${ROOT_REL}/.hermes/image_cache
 ${ROOT_REL}/.hermes/.hermes_history
+*.sock
 ${WWW_REL}/ojs/cache
 ${WWW_REL}/ojs-files/scheduledTaskLogs
 ${WWW_REL}/ojs-files/usageStats

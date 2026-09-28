@@ -327,6 +327,22 @@ if phase_enabled ownership; then
         chown -R "$DEPLOY:$DEPLOY" "$SRV" "/home/$DEPLOY" 2>/dev/null || true
         ok "$SRV and /home/$DEPLOY -> $DEPLOY"
 
+        # Undo the part of that blanket chown which breaks the Laravel/FPM app.
+        # Its container runs as uid 33, so storage/ + bootstrap/cache/ must stay
+        # www-data:www-data and .env must be readable by www-data (0640).
+        # Getting this wrong is SILENT: the site keeps answering 200 because it
+        # boots from the cached bootstrap/cache/config.php and never opens
+        # .env — it only breaks on the next container restart or config:clear.
+        EC="$REPOS_DIR/ecommerce"
+        if [[ -d "$EC" ]]; then
+            chown -R www-data:www-data "$EC/storage" "$EC/bootstrap/cache" 2>/dev/null || true
+            if [[ -f "$EC/.env" ]]; then
+                chown "$DEPLOY:www-data" "$EC/.env" 2>/dev/null || true
+                chmod 640 "$EC/.env"
+            fi
+            ok "ecommerce storage/ + bootstrap/cache/ -> www-data; .env -> $DEPLOY:www-data 0640"
+        fi
+
         # The OJS container runs as uid 33 and writes here.
         if [[ -d /var/www/biadenrekacipta ]]; then
             chown -R www-data:www-data "$OJS_DIR" "$OJS_FILES" 2>/dev/null || true
@@ -388,6 +404,8 @@ if phase_enabled verify; then
     check "mysql systemd override"        test -s /etc/systemd/system/mysql.service.d
     check "docker daemon.json"            test -s /etc/docker/daemon.json
     check "ufw active"                    bash -c 'ufw status | grep -q "Status: active"'
+    check "ecommerce .env group www-data"  bash -c 'test "$(stat -c %G /srv/repos/ecommerce/.env 2>/dev/null)" = www-data'
+    check "ecommerce storage www-data"     bash -c 'test "$(stat -c %U /srv/repos/ecommerce/storage 2>/dev/null)" = www-data'
     check "postgres container running"    bash -c 'docker ps --format "{{.Names}}" | grep -qx vpsplus-postgres'
     check "mysql reachable"               mysqladmin ping
 
