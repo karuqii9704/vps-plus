@@ -260,13 +260,18 @@ Order matters. Doing these out of order causes avoidable breakage.
    While the agents run, the working trees never stop changing: a bundle or an
    rsync is always chasing a moving target, and uncommitted agent work is the
    easiest thing to lose in a migration. Stop them, then **commit and push
-   every checkout** — the verify step reports exactly which repos are dirty and
-   on which branch:
+   every checkout**. Two tools tell you exactly what is left:
    ```
-   cd /srv/vps-plus && ./ops/migrate-verify-bundle.sh <bundle>
+   cd /srv/vps-plus
+   ./ops/migrate-audit.sh <bundle>          # gate — exits 1 while work is unpushed
+   ./ops/migrate-verify-bundle.sh <bundle>  # fidelity of the archives themselves
    ```
-   Any line saying `PUSH BEFORE MIGRATING` has to be resolved before the
-   cutover, not after.
+   **`migrate-audit.sh` cannot pass while the agent team is running.** The
+   agents keep committing to their branches, so the audit keeps finding
+   "uncommitted path" and "branch tanpa remote" gaps no matter how recently you
+   pushed. That is the check doing its job, not a broken bundle. Stop the
+   agents, commit and push, and only then expect a green audit. Any line saying
+   `PUSH BEFORE MIGRATING` has to be resolved before the cutover, not after.
 3. **DNS**: point the A records at the new IP.
    ```
    ops/dns.sh --dry-run       # compare the plan against this list before applying
