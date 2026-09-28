@@ -29,9 +29,15 @@ step() { printf '\n%s==>%s %s%s%s\n' "$BOLD" "$OFF" "$BOLD" "$*" "$OFF"; }
 
 [[ -d "$B/archives" ]] || { bad "not a bundle (no archives/): $B"; exit 1; }
 
-# Paths that are rewritten constantly by running agents / the gateway / git.
-# A difference here is drift, not damage.
-VOLATILE='^(home/[^/]+/\.claude|root/\.hermes|srv/hq/status|srv/notes/\.git|srv/notes/00-HQ/tasks\.md|srv/plus-office/data/.*\.db|.*/\.git/(index|COMMIT_EDITMSG|logs|refs)|\.bundle-fingerprint)'
+# Paths rewritten continuously by running processes — a difference here is
+# drift, not damage.
+VOLATILE='^(home/[^/]+/\.claude|root/\.hermes|srv/hq/status|srv/plus-office/data/.*\.db|srv/notes/00-HQ/tasks\.md|.*/\.git/|\.bundle-fingerprint)'
+# Working trees of the app checkouts. These are NOT volatile by nature, but on
+# this box autonomous agents (srv/hq/run-agent.sh) write to them continuously,
+# so a difference here usually means uncommitted work rather than corruption.
+# It gets its own bucket and its own warning: uncommitted work is exactly what
+# gets lost in a migration.
+WORKTREE='^srv/repos/'
 
 FP="$(sha256sum < "$B/checksums.sha256" | cut -d' ' -f1)"
 
@@ -68,19 +74,33 @@ diff "$A" "$Bs" | grep '^<' | sed 's#^< [a-f0-9]*  ##' > "$DIFFS" || true
 # --- 3. classify ------------------------------------------------------------
 step "fidelity"
 NDIFF=$(wc -l < "$DIFFS")
-n_vol=0; n_real=0
+n_vol=0; n_wt=0; n_real=0
 if [[ $NDIFF -gt 0 ]]; then
     n_vol=$(grep -cE "$VOLATILE" "$DIFFS" || true)
-    n_real=$(( NDIFF - n_vol ))
+    REST=$(grep -vE "$VOLATILE" "$DIFFS" || true)
+    n_wt=$(printf '%s\n' "$REST" | grep -cE "$WORKTREE" || true)
+    n_real=$(printf '%s\n' "$REST" | grep -vcE "$WORKTREE" || true)
 fi
 IDENTICAL=$(( TOTAL - NDIFF ))
 ok "identical to source          : $IDENTICAL / $TOTAL"
 if [[ $n_vol -gt 0 ]]; then
-    note "$n_vol differ — known live-write paths (agents, gateway, git index). Expected drift."
+    note "$n_vol differ — known live-write paths (gateway, agent state, git metadata). Expected drift."
+fi
+if [[ $n_wt -gt 0 ]]; then
+    note "$n_wt differ inside an app checkout — usually uncommitted agent work."
+    printf '%s\n' "$REST" | grep -E "$WORKTREE" | sed 's/^/      /' | head -20
+    for repo in $(printf '%s\n' "$REST" | grep -E "$WORKTREE" \
+                  | sed 's#^srv/repos/\([^/]*\)/.*#\1#' | sort -u); do
+        d="$REPOS_DIR/$repo"
+        [[ -d "$d/.git" ]] || continue
+        br=$(git -C "$d" branch --show-current 2>/dev/null)
+        dirty=$(git -C "$d" status --porcelain 2>/dev/null | wc -l)
+        warn "$repo: branch '$br', $dirty uncommitted path(s) — PUSH BEFORE MIGRATING"
+    done
 fi
 if [[ $n_real -gt 0 ]]; then
-    bad "$n_real differ outside the volatile allowlist:"
-    grep -vE "$VOLATILE" "$DIFFS" | sed 's/^/      /' | head -25
+    bad "$n_real differ outside every allowlist:"
+    printf '%s\n' "$REST" | grep -vE "$WORKTREE" | sed 's/^/      /' | head -25
 else
     ok "no unexplained differences"
 fi

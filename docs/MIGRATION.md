@@ -183,11 +183,24 @@ Order matters. Doing these out of order causes avoidable breakage.
    ```
    rsync -avz --delete-after plus@<old-ip>:/srv/ /srv/     # adjust excludes
    ```
-2. **Stop the gateway on the OLD box.** One bot token = one poller. Two
-   machines polling the same token means silently lost Telegram messages.
+2. **Stop the gateway AND the autonomous agents on the OLD box.** One bot token
+   = one poller; two machines polling the same token means silently lost
+   Telegram messages.
    ```
-   hermes gateway stop        # on the OLD box — do this FIRST
+   hermes gateway stop                  # on the OLD box — do this FIRST
+   pkill -f '/srv/hq/run-agent.sh'      # the HQ agents write to the repo
+                                        # checkouts continuously
    ```
+   While the agents run, the working trees never stop changing: a bundle or an
+   rsync is always chasing a moving target, and uncommitted agent work is the
+   easiest thing to lose in a migration. Stop them, then **commit and push
+   every checkout** — the verify step reports exactly which repos are dirty and
+   on which branch:
+   ```
+   cd /srv/vps-plus && ./ops/migrate-verify-bundle.sh <bundle>
+   ```
+   Any line saying `PUSH BEFORE MIGRATING` has to be resolved before the
+   cutover, not after.
 3. **DNS**: point the A records at the new IP.
    ```
    ops/dns.sh --dry-run       # compare the plan against this list before applying
