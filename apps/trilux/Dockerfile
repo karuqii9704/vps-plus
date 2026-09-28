@@ -7,8 +7,12 @@ FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production PORT=8080 SITE_ROOT=/site
 
-COPY package.json ./
-RUN npm install --omit=dev --no-audit --no-fund
+# package-lock.json is committed and in sync with package.json, so `npm ci`
+# installs exactly the recorded versions. With plain `npm install` (and no
+# lockfile in the context) a rebuild on a new box could silently resolve newer
+# minor/patch versions than the box that works today.
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund
 
 COPY server.js ./
 

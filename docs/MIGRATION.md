@@ -301,6 +301,31 @@ that holds it. `REPOS_DIR` and `DATA_DIR` are separate absolute paths that
 happen to share the parent `/srv`. `migrate-export.sh` now derives the tree it
 packs from `dirname SRV_ROOT` and refuses to run if the three disagree.
 
+### Rebuilds are safe — with two caveats worth pinning down
+
+Everything the five app images need travels in the bundle: the Dockerfiles
+(`apps/trilux/`, `apps/nalar/`, `stack/ecommerce/`, `stack/ojs/`, and the two
+that live in their own repos), every `package-lock.json` / `composer.lock`, and
+the build-time env files (`stack/apps/*.env` — `NEXT_PUBLIC_*`/`VITE_*` are
+inlined into the bundle at build time, so they must be present *when building*,
+not just at runtime). A cold `docker build --no-cache` of the trilux image was
+measured at **15 seconds**, so dropping the 38 GB cache costs minutes, not
+hours.
+
+Two things can still bite a rebuild months later:
+
+1. **Floating base tags.** `node:22-alpine`, `php:8.3-fpm`, `php:8.4-fpm`,
+   `postgres:17-alpine` move upstream. `meta/image-digests.txt` inside the
+   bundle records the exact digests this box was built against — pull those by
+   digest first if you need the new box to match.
+2. **Unpinned apt packages** in the PHP images (`apt-get install -y
+   --no-install-recommends …` has no versions). Debian keeps bookworm stable, so
+   this is usually fine, but it is the least reproducible step in the chain.
+
+Apps that pin their dependency graph with `npm ci` (plus, studio, nalar,
+ecommerce, and trilux since 2026-09-28) rebuild deterministically. Anything
+using plain `npm install` does not — check before trusting a rebuild.
+
 ### Root-owned files inside `.git`
 
 A single root-owned write into a checkout makes every later

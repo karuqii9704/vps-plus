@@ -360,6 +360,24 @@ if (( ! DRY_RUN )); then
         docker images --format '{{.Repository}}:{{.Tag}}  {{.Size}}' | sort
     } > "$BUNDLE/meta/docker-images.txt"
 
+    # Base images are referenced by floating tags (node:22-alpine, php:8.3-fpm).
+    # Upstream moves those; a rebuild months later can land on a newer base than
+    # the one this box works on. Recording the digests lets the new box pin:
+    #     docker pull <repo>@sha256:...
+    {
+        echo "# Digests of every image present here."
+        echo "# Locally built images have no digest (they are not pushed anywhere) —"
+        echo "# only the pulled bases can be pinned, and those are the ones that matter."
+        echo "#"
+        echo "#   docker pull <repo>@sha256:<digest>   # then build as usual"
+        echo
+        printf '%-36s %s\n' "IMAGE" "DIGEST"
+        for img in $(docker images --format '{{.Repository}}:{{.Tag}}' | grep -v '<none>' | sort); do
+            d=$(docker image inspect "$img" --format '{{if .RepoDigests}}{{index .RepoDigests 0}}{{end}}' 2>/dev/null)
+            printf '%-36s %s\n' "$img" "${d:-<locally built — nothing to pin>}"
+        done
+    } > "$BUNDLE/meta/image-digests.txt"
+
     {
         echo "# systemd units enabled on the old box"
         systemctl list-unit-files --state=enabled --no-pager --no-legend 2>/dev/null | awk '{print $1}'
