@@ -83,8 +83,12 @@ n_vol=0; n_wt=0; n_real=0
 if [[ $NDIFF -gt 0 ]]; then
     n_vol=$(grep -cE "$VOLATILE" "$DIFFS" || true)
     REST=$(grep -vE "$VOLATILE" "$DIFFS" || true)
-    n_wt=$(printf '%s\n' "$REST" | grep -cE "$WORKTREE" || true)
-    n_real=$(printf '%s\n' "$REST" | grep -vcE "$WORKTREE" || true)
+    # Guard on emptiness: `printf '%s\n' "" | grep -vc pattern` counts 1 and
+    # reported a phantom "1 differ outside every allowlist" on a clean run.
+    if [[ -n "${REST//[$'\n']/}" ]]; then
+        n_wt=$(printf '%s\n' "$REST" | grep -cE "$WORKTREE" || true)
+        n_real=$(printf '%s\n' "$REST" | grep -vcE "$WORKTREE" || true)
+    fi
 fi
 IDENTICAL=$(( TOTAL - NDIFF ))
 ok "identical to source          : $IDENTICAL / $TOTAL"
