@@ -28,10 +28,15 @@ info() { printf '%s ::%s %s\n'   "$DIM"    "$OFF" "$*"; }
 step() { printf '\n%s==>%s %s%s%s\n' "$BOLD" "$OFF" "$BOLD" "$*" "$OFF"; }
 
 [[ -d "$B/archives" ]] || { bad "not a bundle (no archives/): $B"; exit 1; }
+[[ -d "$1" ]] || { bad "no such bundle: $1"; exit 1; }
+
+# REPOS_DIR is not in vps.conf (it is a bootstrap default), and this script must
+# run without sourcing lib/common.sh so it works from anywhere.
+REPOS_DIR="${REPOS_DIR:-/srv/repos}"
 
 # Paths rewritten continuously by running processes — a difference here is
 # drift, not damage.
-VOLATILE='^(home/[^/]+/\.claude|root/\.hermes|srv/hq/status|srv/plus-office/data/.*\.db|srv/notes/00-HQ/tasks\.md|.*/\.git/|\.bundle-fingerprint)'
+VOLATILE='^(home/[^/]+/\.claude|root/\.hermes|srv/hq/status|srv/plus-office/data/.*\.db|srv/notes/00-HQ/tasks\.md|.*/\.git/|.*/\.claude/|\.bundle-fingerprint)'
 # Working trees of the app checkouts. These are NOT volatile by nature, but on
 # this box autonomous agents (srv/hq/run-agent.sh) write to them continuously,
 # so a difference here usually means uncommitted work rather than corruption.
