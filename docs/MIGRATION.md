@@ -74,17 +74,25 @@ Playwright E2E suite — while its `ojs/`/`ojs-git/` checkouts are re-clonable.
 The bundle contains **plaintext credentials**. It is written mode 700; keep it
 that way.
 
-Verify it before trusting it. Two levels — the cheap one checks the checksums,
-the thorough one actually unpacks every archive and hashes the result against
-the live source:
+Verify it before trusting it. Three levels — checksums, fidelity, and coverage.
+The third is the one that catches what will actually hurt you:
 
 ```
-# cheap: is the bundle internally intact?
+# 1. cheap: is the bundle internally intact?
 ./ops/migrate-export.sh --verify /srv/data/migrate/bundle-<stamp>
 
-# thorough: is it a faithful copy of this box? (~6 min, needs ~5 GB in /tmp)
+# 2. thorough: is it a faithful copy of this box? (~8 min, needs ~5 GB in /tmp)
 ./ops/migrate-verify-bundle.sh /srv/data/migrate/bundle-<stamp>
+
+# 3. coverage: is EVERYTHING on this box accounted for? (exit 1 if not)
+./ops/migrate-audit.sh /srv/data/migrate/bundle-<stamp>
 ```
+
+A migration's failure mode is **omission, not breakage**: the new box comes up
+green and something quiet is missing. `migrate-audit.sh` walks every container,
+systemd unit (including `--user` units, which `systemctl` hides by default),
+cron entry, home directory and locally-built image and reports COVERED / NOTE /
+GAP for each. Run it before the final export and again before the cutover.
 
 `migrate-verify-bundle.sh` unpacks into `/tmp/restore-sim` and compares every
 file byte-for-byte. Files under known live-write paths (`.claude`, `.hermes`,
@@ -162,18 +170,42 @@ Phases, in the order they must run:
 ### What the bootstrap does NOT know about
 
 `bootstrap.sh`'s stages cover `plus`, `studio`, `trilux`, `nalar` and
-`ecommerce`. These four run on this box and are **not** covered by any stage —
-start them by hand:
+`ecommerce`. These run on this box and are **not** covered by any stage — start
+them by hand:
 
 ```
+# OJS — containerised, NOT in APP_KEYS
 docker compose -f stack/ojs/docker-compose.yml up -d --build
 systemctl start mysql ojs-queue ojs-scheduler
 
+# supabase mini-stack (its own compose + env file)
 docker compose -f apps/supabase.compose.yml \
     --env-file apps/supabase/supabase.env up -d
 
-# plus-office (ollama): re-pull the image; its 2 GB model volume is not in the bundle
+# plus-office — a LOCAL BUILD, not a pull: plus-office:latest has build layers
+# and exists on no registry. The source + .env.office travel in the bundle.
+docker compose -f /srv/plus-office/docker-compose.office.yml up -d --build
+#   its ollama profile is optional and dormant here (see below); skip it with
+#   the default profile. To re-enable offline inference:
+#   docker compose -f /srv/plus-office/docker-compose.office.yml --profile local-llm up -d --build
+
+# Hermes gateway — a systemd --USER unit for root, so it is invisible to
+# `systemctl list-units` and to `systemctl enable`. linger + the user manager
+# are what make it survive (handled by migrate-import.sh --only system):
+loginctl enable-linger root
+XDG_RUNTIME_DIR=/run/user/0 systemctl --user daemon-reload
+XDG_RUNTIME_DIR=/run/user/0 systemctl --user start hermes-gateway
 ```
+
+**plus-office does not need ollama.** `detectProvider()` prefers
+`ANTHROPIC_API_KEY`, the container has it, so the active provider is Anthropic
+(`claude-haiku-4-5` / `claude-opus-5`). Ollama is only the last-resort fallback
+and its container has been stopped since 2026-09-25. Dropping it saves ~11 GB
+(9.28 GB image, of which ~4.75 GB is CUDA/MLX/Vulkan backends useless on a
+CPU-only VPS — plus a 2.1 GB model volume).
+
+**`~/.cua-driver` (49 MB) is deliberately excluded.** Reinstall with
+`hermes computer-use doctor` if you use the computer-use tools.
 
 ## Phase 4 — cutover
 

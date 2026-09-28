@@ -177,6 +177,30 @@ if phase_enabled system; then
         fi
         run systemctl daemon-reload && ok "systemd reloaded"
 
+        # The Hermes gateway is a systemd --USER unit for root, NOT a system
+        # unit — nothing in systemctl's normal view shows it. Both the unit and
+        # its WantedBy symlink travel in the archive; what is missing on a fresh
+        # box is linger (so the user manager survives logout) and a user manager
+        # to load the unit at all. Without this the gateway never comes back.
+        if [[ -f /root/.config/systemd/user/hermes-gateway.service ]]; then
+            if (( DRY_RUN )); then
+                printf '   \033[2mwould run:\033[0m loginctl enable-linger root\n'
+                printf '   \033[2mwould run:\033[0m XDG_RUNTIME_DIR=/run/user/0 systemctl --user daemon-reload\n'
+            else
+                loginctl enable-linger root 2>/dev/null \
+                    && ok "linger enabled for root" \
+                    || warn "could not enable linger — the gateway will not start at boot"
+                for _ in $(seq 1 10); do [[ -d /run/user/0 ]] && break; sleep 1; done
+                if [[ -d /run/user/0 ]]; then
+                    XDG_RUNTIME_DIR=/run/user/0 systemctl --user daemon-reload 2>/dev/null \
+                        && ok "systemd --user reloaded (hermes-gateway registered)" \
+                        || warn "systemctl --user failed — start the gateway by hand after login"
+                else
+                    warn "no user manager at /run/user/0 — linger will start it on the next boot"
+                fi
+            fi
+        fi
+
         # Firewall: apply ADDITIVELY from the recorded rules. Never reset here —
         # a reset in the wrong moment drops the SSH rule and locks you out.
         if [[ -x "$BUNDLE/system/ufw-apply.sh" ]]; then
@@ -395,6 +419,9 @@ if phase_enabled verify; then
     check "app env files present"         test -f "$ROOT/stack/apps/plus.env"
     check "root hermes config present"    test -f /root/.hermes/config.yaml
     check "root hermes secrets 0600"      test "$(stat -c %a /root/.hermes/.env 2>/dev/null)" = 600
+    check "gateway USER unit present"      test -f /root/.config/systemd/user/hermes-gateway.service
+    check "gateway unit is WantedBy"       test -L /root/.config/systemd/user/default.target.wants/hermes-gateway.service
+    check "linger enabled for root"        test -f /var/lib/systemd/linger/root
     check "OJS config.inc.php present"    test -f "$OJS_DIR/config.inc.php"
     check "OJS uploads present"           test -d "$OJS_FILES/journals"
     check "OJS cache cleared"             bash -c '! ls /var/www/biadenrekacipta/ojs/cache/*.css >/dev/null 2>&1'
@@ -433,9 +460,13 @@ cat <<EOF
         systemctl start mysql ojs-queue ojs-scheduler
   * supabase mini-stack:
         docker compose -f $ROOT/apps/supabase.compose.yml --env-file $ROOT/apps/supabase/supabase.env up -d
-  * plus-office (ollama): pull the image, the 2 GB model volume is NOT in the bundle
-  * hermes gateway — ONLY after the OLD box's gateway is stopped:
-        hermes gateway start
+  * plus-office — a LOCAL BUILD (plus-office:latest is on no registry):
+        docker compose -f /srv/plus-office/docker-compose.office.yml up -d --build
+  * hermes gateway — ENABLED as a systemd --user unit, starts on boot. Do NOT
+    start it before the OLD box's gateway is stopped; the exact command is in
+    docs/MIGRATION.md, Phase 4 step 2
+  * computer-use tooling (~/.cua-driver, 49 MB) is deliberately NOT in the
+    bundle — reinstall it with 'hermes computer-use doctor' if you use it
   * then: docs/MIGRATION.md, "cutover" section (DNS, TLS, smoke test)
 
   Full bundle manifest : $BUNDLE/meta/machine.txt

@@ -9,6 +9,15 @@
 # JANGAN jalankan `docker compose down` dari direktori stack utama dengan
 # --remove-orphans — service ini satu project name (vpsplus) supaya deploy.sh
 # tetap bekerja; konsisten dengan catatan orphan-container di SKILL.
+#
+# `name:` is declared EXPLICITLY. Without it, compose derives the project from
+# this file's directory ("ojs"), so a plain `compose up -d` here creates a
+# second project and collides with the existing containers on container_name
+# ("Conflict. The container name ... is already in use"). The running
+# containers are labelled com.docker.compose.project=vpsplus; this makes the
+# file agree with them, so no -p flag is needed and a fresh box lands in the
+# same project as everything else.
+name: vpsplus
 
 services:
   ojs-fpm:
@@ -31,7 +40,13 @@ services:
       start_period: 10s
 
   ojs-queue:
-    image: vpsplus-ojs:tools
+    # Same image as ojs-fpm. This used to say `vpsplus-ojs:tools`, a tag nothing
+    # in this repo ever created — it was made by hand with `docker tag` and was
+    # the only thing keeping the queue and scheduler schedulable. On a fresh box
+    # `compose up --build` would have built `:latest` only, and compose would
+    # then try to PULL `:tools` from Docker Hub and fail, leaving both workers
+    # dead. (Verified: the two tags pointed at one identical image ID.)
+    image: vpsplus-ojs:latest
     container_name: vpsplus-ojs-queue
     restart: unless-stopped
     network_mode: host
@@ -45,7 +60,7 @@ services:
     command: ["php", "lib/pkp/tools/jobs.php", "work"]
 
   ojs-scheduler:
-    image: vpsplus-ojs:tools
+    image: vpsplus-ojs:latest
     container_name: vpsplus-ojs-scheduler
     restart: unless-stopped
     network_mode: host

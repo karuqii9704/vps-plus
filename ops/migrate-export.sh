@@ -151,6 +151,9 @@ ${ROOT_REL}/.hermes/logs
 ${ROOT_REL}/.hermes/audio_cache
 ${ROOT_REL}/.hermes/image_cache
 ${ROOT_REL}/.hermes/.hermes_history
+${ROOT_REL}/.cache
+${ROOT_REL}/.npm
+${ROOT_REL}/.cua-driver
 *.sock
 ${WWW_REL}/ojs/cache
 ${WWW_REL}/ojs-files/scheduledTaskLogs
@@ -255,9 +258,8 @@ pack srv.tar.zst       "$SRV — repo checkouts, HQ, notes, skills vault, vps-pl
                        "$SRV_REL"
 pack home-deploy.tar.zst "$DHOME — agent configs, SSH keys, bec-repo, bec-bundle, project dirs" \
                        "$HOME_REL"
-pack hermes-root.tar.zst "/$ROOT_REL — the ACTIVE hermes gateway (.hermes, .ssh)" \
-                       "$ROOT_REL/.hermes" "$ROOT_REL/.ssh" "$ROOT_REL/.bashrc" \
-                       "$ROOT_REL/.gitconfig" "$ROOT_REL/.profile"
+pack hermes-root.tar.zst "/$ROOT_REL — gateway state, systemd USER units, CLI tooling, scratch files" \
+                       "$ROOT_REL"
 pack www-ojs.tar.zst   "the OJS web tree + user uploads (config.inc.php included)" \
                        "${WWW_ROOT#/}"
 pack etc-system.tar.zst "nginx, TLS certs, AppArmor, systemd units, docker, fail2ban, crontab" \
@@ -495,12 +497,27 @@ cd /srv/vps-plus
 ## 5. Start what bootstrap does not know about
 
 \`\`\`
+# OJS — containerised, NOT in APP_KEYS
 docker compose -f stack/ojs/docker-compose.yml up -d --build
 systemctl start mysql ojs-queue ojs-scheduler
 
+# supabase mini-stack
 docker compose -f apps/supabase.compose.yml \\
     --env-file apps/supabase/supabase.env up -d
+
+# plus-office — LOCAL BUILD, plus-office:latest is on no registry
+docker compose -f /srv/plus-office/docker-compose.office.yml up -d --build
 \`\`\`
+
+The Hermes gateway is a **systemd \`--user\` unit for root**, so it never shows
+up in \`systemctl list-units\` and \`systemctl enable\` cannot reach it. The unit
+and its \`WantedBy\` symlink travel in the archive, and \`migrate-import.sh --only
+system\` enables linger and reloads the user manager. Do NOT start it before the
+OLD box's gateway is stopped — the exact command is in \`docs/MIGRATION.md\`,
+Phase 4, step 2.
+
+\`~/.cua-driver\` (49 MB) is deliberately excluded — reinstall with
+\`hermes computer-use doctor\` if you use the computer-use tools.
 
 ## 6. Cutover
 

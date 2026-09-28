@@ -36,7 +36,7 @@ REPOS_DIR="${REPOS_DIR:-/srv/repos}"
 
 # Paths rewritten continuously by running processes — a difference here is
 # drift, not damage.
-VOLATILE='^(home/[^/]+/\.claude|root/\.hermes|srv/hq/status|srv/plus-office/data/.*\.db|srv/notes/00-HQ/tasks\.md|.*/\.git/|.*/\.claude/|\.bundle-fingerprint)'
+VOLATILE='^(home/[^/]+/\.claude|root/\.hermes|root/\.local/share/tirith|srv/hq/status|srv/plus-office/data/.*\.db|srv/notes/00-HQ/tasks\.md|.*/\.git/|.*/\.claude/|\.bundle-fingerprint)'
 # Working trees of the app checkouts. These are NOT volatile by nature, but on
 # this box autonomous agents (srv/hq/run-agent.sh) write to them continuously,
 # so a difference here usually means uncommitted work rather than corruption.
