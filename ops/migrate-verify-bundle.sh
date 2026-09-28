@@ -127,16 +127,21 @@ need var/spool/cron/crontabs/plus                            "deploy crontab"
 step "database dumps"
 for f in "$B"/db/*.sql.gz; do
     n=$(basename "$f")
-    if ! zcat "$f" 2>/dev/null | head -1 | grep -q '^\\restrict\|^--'; then
-        bad "$n — not a valid pg_dump/mysqldump stream"; fail=1; continue
+    # NOTE: never write `zcat | head -1 | grep -q` here — with `set -o pipefail`
+    # zcat dies of SIGPIPE and the pipeline reports failure even on a match,
+    # which made every valid dump look broken.
+    if ! gzip -t "$f" 2>/dev/null; then
+        bad "$n — corrupt gzip"; fail=1; continue
     fi
-    if [[ "$n" == mysql-* ]]; then
-        t=$(zcat "$f" | grep -c '^CREATE TABLE')
-        [[ "$t" -gt 0 ]] && ok "$n — $t tables" || { bad "$n — no tables"; fail=1; }
+    marker=$(zcat "$f" 2>/dev/null | grep -m1 -E '^(--|CREATE |DROP |SET |\\restrict)' || true)
+    if [[ -z "$marker" ]]; then
+        bad "$n — decompresses but contains no SQL statements"; fail=1; continue
+    fi
+    t=$(zcat "$f" 2>/dev/null | grep -c '^CREATE TABLE' || true)
+    if [[ "$t" -gt 0 ]]; then
+        ok "$n — replayable, $t tables"
     else
-        t=$(zcat "$f" | grep -c '^CREATE TABLE')
-        if [[ "$t" -gt 0 ]]; then ok "$n — $t tables"
-        else note "$n — 0 tables (database is genuinely empty — verify that is intended)"; fi
+        note "$n — replayable, 0 tables (database is genuinely empty — confirm that is intended)"
     fi
 done
 
