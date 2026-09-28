@@ -115,6 +115,40 @@ while read -r img; do
 done < "$BUILTMAP"
 rm -f "$BUILTMAP"
 
+step "/usr/local — instal manual di luar paket"
+for d in /usr/local/bin /usr/local/lib/*/; do
+    [[ -e "$d" ]] || continue
+    n="$(basename "${d%/}")"
+    if [[ "$n" == bin ]]; then
+        # NOTE the slash: "${d%/}"/* not "$d"* — without it the glob also
+        # matches the directory itself and reports "usr/local/bin/bin".
+        for f in "${d%/}"/*; do
+            [[ -e "$f" ]] || continue
+            b="usr/local/bin/$(basename "$f")"
+            if have usr-local "$b"; then ok "$b"
+            elif dpkg -S "$f" >/dev/null 2>&1; then :
+            else gap "$b ($(du -h "$f" 2>/dev/null | cut -f1)) — tidak di bundle"; fi
+        done
+    else
+        if have usr-local "usr/local/lib/$n"; then ok "usr/local/lib/$n ($(du -sh "$d" | cut -f1))"
+        else
+            sz=$(du -sh "$d" 2>/dev/null | cut -f1)
+            [[ "$sz" == "8.0K" || "$sz" == "4.0K" ]] && nb "usr/local/lib/$n ($sz) — kosong, abaikan" \
+                || gap "usr/local/lib/$n ($sz) — tidak di bundle"
+        fi
+    fi
+done
+
+step "unit systemd custom: ExecStart-nya benar-benar ada?"
+for u in $(systemctl list-units --type=service --state=running --no-pager --no-legend 2>/dev/null | awk '{print $1}'); do
+    p=$(systemctl show -p FragmentPath --value "$u" 2>/dev/null)
+    case "$p" in /etc/systemd/system/*) ;; *) continue ;; esac
+    bin=$(systemctl show -p ExecStart --value "$u" 2>/dev/null | grep -oE '/[^ ;]+' | head -1)
+    [[ -n "$bin" ]] || continue
+    if [[ -x "$bin" ]]; then ok "$u → $bin"
+    else gap "$u → $bin TIDAK ADA di box ini"; fi
+done
+
 step "$ROOT_H — seluruh isi vs bundle"
 for e in $(ls -A "$ROOT_H" 2>/dev/null); do
     if have hermes-root "$(basename "$ROOT_H")/$e"; then ok "$ROOT_H/$e"

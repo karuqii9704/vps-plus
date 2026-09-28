@@ -260,6 +260,16 @@ pack home-deploy.tar.zst "$DHOME — agent configs, SSH keys, bec-repo, bec-bund
                        "$HOME_REL"
 pack hermes-root.tar.zst "/$ROOT_REL — gateway state, systemd USER units, CLI tooling, scratch files" \
                        "$ROOT_REL"
+# Manual installs under /usr/local. Two separate traps live here:
+#   * the Hermes Agent install, whose path the gateway's systemd --user unit
+#     hardcodes (ExecStart=.../hermes-agent/venv/bin/python). bootstrap's
+#     30-ai-clis runs the upstream installer AS THE DEPLOY USER — a different
+#     path (that user's ~/.hermes/hermes-agent) — and the documented migration
+#     order skips stage 30 entirely.
+#   * filebrowser: its unit IS shipped in etc-system.tar.zst, but the 36 MB
+#     binary only exists here, so the service would fail to start.
+pack usr-local.tar.zst "/usr/local — Hermes install + node symlinks, filebrowser, CLI launchers" \
+                       "usr/local/bin" "usr/local/lib/hermes-agent"
 pack www-ojs.tar.zst   "the OJS web tree + user uploads (config.inc.php included)" \
                        "${WWW_ROOT#/}"
 pack etc-system.tar.zst "nginx, TLS certs, AppArmor, systemd units, docker, fail2ban, crontab" \

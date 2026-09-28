@@ -149,6 +149,7 @@ if phase_enabled files; then
     unpack home-deploy.tar.zst
     unpack hermes-root.tar.zst
     unpack www-ojs.tar.zst
+    unpack usr-local.tar.zst
     if (( WITH_OJS_QA )); then
         unpack ojs-qa.tar.zst
     elif [[ -f "$BUNDLE/archives/ojs-qa.tar.zst" ]]; then
@@ -422,6 +423,10 @@ if phase_enabled verify; then
     check "gateway USER unit present"      test -f /root/.config/systemd/user/hermes-gateway.service
     check "gateway unit is WantedBy"       test -L /root/.config/systemd/user/default.target.wants/hermes-gateway.service
     check "linger enabled for root"        test -f /var/lib/systemd/linger/root
+    check "hermes launcher present"        test -x /usr/local/bin/hermes
+    check "hermes venv interpreter"        test -x /usr/local/lib/hermes-agent/venv/bin/python
+    check "hermes_cli package present"     test -d /usr/local/lib/hermes-agent/hermes_cli
+    check "gateway ExecStart target"       test -f /usr/local/lib/hermes-agent/hermes
     check "OJS config.inc.php present"    test -f "$OJS_DIR/config.inc.php"
     check "OJS uploads present"           test -d "$OJS_FILES/journals"
     check "OJS cache cleared"             bash -c '! ls /var/www/biadenrekacipta/ojs/cache/*.css >/dev/null 2>&1'

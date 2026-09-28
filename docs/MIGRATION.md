@@ -207,6 +207,24 @@ CPU-only VPS — plus a 2.1 GB model volume).
 **`~/.cua-driver` (49 MB) is deliberately excluded.** Reinstall with
 `hermes computer-use doctor` if you use the computer-use tools.
 
+### `/usr/local` is not a bootstrap concern — it travels in the bundle
+
+Two things live there that nothing else reproduces:
+
+- **The Hermes Agent install** (`/usr/local/lib/hermes-agent`, 1.5 GB; 554 MB
+  compressed). The gateway's systemd `--user` unit hardcodes
+  `ExecStart=/usr/local/lib/hermes-agent/venv/bin/python`. bootstrap's
+  `30-ai-clis` step runs the upstream installer **as the deploy user**, which
+  lands in *that* user's `~/.hermes/hermes-agent` — a different path — and the
+  documented migration order skips stage 30 outright. Without the archive the
+  new box has no `hermes` binary at all and the unit can never start.
+- **`/usr/local/bin/filebrowser`** (36 MB). Its unit ships in
+  `etc-system.tar.zst`, but the binary only exists on the old box, so the
+  service would fail to start.
+
+Both come over in `usr-local.tar.zst`. `/usr/local/bin/{node,npm,npx}` are
+symlinks into `~/.hermes/node` (208 MB), which is inside `hermes-root.tar.zst`.
+
 ## Phase 4 — cutover
 
 Order matters. Doing these out of order causes avoidable breakage.
