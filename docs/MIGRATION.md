@@ -40,7 +40,23 @@ Do these on the OLD box. They make the migration boring.
    ```
 3. **Push every repo.** Uncommitted work in a checkout is the single most
    common thing lost in a migration. The export records what is dirty —
-   read `meta/git-state.txt` inside the bundle, then push.
+   read `meta/git-state.txt` inside the bundle, then push. `migrate-audit.sh`
+   fails while any checkout is dirty, ahead of its remote, or has a local
+   branch that was never pushed.
+
+   If you do **not** have push rights to a repo, the work can still be saved as
+   a git bundle — a single file you can clone from directly:
+
+   ```
+   sudo -u plus git -C /srv/repos/<repo> bundle create /tmp/<repo>.bundle --all
+   sudo -u plus git bundle verify /tmp/<repo>.bundle     # "complete history"
+   ```
+
+   (The full `.git` directory also already travels inside `srv.tar.zst`, so
+   unpushed commits survive the bundle even without this — the bundle is just
+   easier to hand to someone.) On 2026-09-28 this mattered: `ecommerce` had
+   **11 unpushed commits** and the account could READ but not WRITE
+   `karuhun-developer/ecommerce`.
 4. **`/srv/ojs-qa`** (the QA staging instance: dead containers, orphaned MySQL
    volume) is preserved automatically as its own archive. Its client reports,
    audit scripts and E2E harness travel; the OJS checkouts inside do not

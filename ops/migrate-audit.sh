@@ -149,6 +149,43 @@ for u in $(systemctl list-units --type=service --state=running --no-pager --no-l
     else gap "$u → $bin TIDAK ADA di box ini"; fi
 done
 
+step "checkout: ada kerja yang HANYA ada di box ini?"
+# A commit that exists only on the old box is what a migration loses. This is
+# the single highest-value check here: on 2026-09-28 it found 13 unpushed commits
+# in trilux, 12 in plusthesite-, 12 in ecommerce and 2 studio branches, none of
+# which any other check would have caught.
+for r in "${REPOS_DIR}"/* "$REPO_ROOT" "$DEPLOY_H/bec-repo"; do
+    [[ -d "$r/.git" ]] || continue
+    name=$(basename "$r")
+    problems=""
+
+    dirty=$(sudo -u "$DEPLOY" git -C "$r" status --porcelain 2>/dev/null | wc -l)
+    [[ "$dirty" -gt 0 ]] && problems="$problems\n           $dirty path belum di-commit"
+
+    sudo -u "$DEPLOY" git -C "$r" fetch --quiet origin 2>/dev/null || true
+    br=$(sudo -u "$DEPLOY" git -C "$r" branch --show-current 2>/dev/null)
+    if [[ -n "$br" ]]; then
+        ahead=$(sudo -u "$DEPLOY" git -C "$r" rev-list --count "origin/$br..$br" 2>/dev/null || echo 0)
+        [[ "${ahead:-0}" -gt 0 ]] && problems="$problems\n           branch '$br' $ahead commit di depan origin/$br"
+    fi
+
+    unp=""
+    for b in $(sudo -u "$DEPLOY" git -C "$r" for-each-ref --format='%(refname:short)' refs/heads/ 2>/dev/null); do
+        sudo -u "$DEPLOY" git -C "$r" rev-parse --verify --quiet "origin/$b" >/dev/null 2>&1 || unp="$unp $b"
+    done
+    [[ -n "$unp" ]] && problems="$problems\n           branch tanpa remote:$unp"
+
+    if [[ -n "$problems" ]]; then
+        gap "$name — $(printf "$problems" | grep -c '^') temuan di atas"
+        printf "$problems\n" | grep .
+    else
+        ok "$name — bersih & semua branch ada di remote"
+    fi
+done
+echo "  ${DIM}kalau kamu tidak punya hak push ke sebuah repo, kerja tetap bisa diselamatkan:${OFF}"
+echo "  ${DIM}  sudo -u $DEPLOY git -C <repo> bundle create /tmp/<repo>.bundle --all${OFF}"
+echo "  ${DIM}file .bundle itu bisa di-clone langsung, dan .git-nya juga sudah ikut di srv.tar.zst.${OFF}"
+
 step "$ROOT_H — seluruh isi vs bundle"
 for e in $(ls -A "$ROOT_H" 2>/dev/null); do
     if have hermes-root "$(basename "$ROOT_H")/$e"; then ok "$ROOT_H/$e"
