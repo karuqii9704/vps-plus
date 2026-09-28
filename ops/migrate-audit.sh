@@ -34,6 +34,12 @@ DEPLOY_USER="$(grep -m1 '^DEPLOY_USER=' /srv/vps-plus/vps.conf 2>/dev/null | cut
 DEPLOY_USER="${DEPLOY_USER:-plus}"
 DEPLOY_H="$(getent passwd "$DEPLOY_USER" | cut -d: -f6)"; DEPLOY_H="${DEPLOY_H:-/home/$DEPLOY_USER}"
 
+# Where the checkouts live. REPO_ROOT is derived from this script's own location
+# so nothing is hardcoded: ops/ -> repo root.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$HERE/.." && pwd)"
+REPOS_DIR="${REPOS_DIR:-/srv/repos}"
+
 A_ROOT=$(mktemp); A_SRV=$(mktemp); A_ETC=$(mktemp); A_WWW=$(mktemp); A_OJSQA=$(mktemp)
 for f in "$B"/archives/*.tar.zst; do
     n=$(basename "$f" .tar.zst)
@@ -151,27 +157,28 @@ done
 
 step "checkout: ada kerja yang HANYA ada di box ini?"
 # A commit that exists only on the old box is what a migration loses. This is
-# the single highest-value check here: on 2026-09-28 it found 13 unpushed commits
-# in trilux, 12 in plusthesite-, 12 in ecommerce and 2 studio branches, none of
-# which any other check would have caught.
+# the single highest-value check here: when it was written on 2026-09-28 it
+# found 13 unpushed commits in trilux-design-page, 11 in ecommerce, 4 unpushed
+# branches in plusthesite- and 2 in studio-plusthesite. Nothing else in this
+# audit would have caught any of it, and all of it would have died with the box.
 for r in "${REPOS_DIR}"/* "$REPO_ROOT" "$DEPLOY_H/bec-repo"; do
     [[ -d "$r/.git" ]] || continue
     name=$(basename "$r")
     problems=""
 
-    dirty=$(sudo -u "$DEPLOY" git -C "$r" status --porcelain 2>/dev/null | wc -l)
+    dirty=$(sudo -u "$DEPLOY_USER" git -C "$r" status --porcelain 2>/dev/null | wc -l)
     [[ "$dirty" -gt 0 ]] && problems="$problems\n           $dirty path belum di-commit"
 
-    sudo -u "$DEPLOY" git -C "$r" fetch --quiet origin 2>/dev/null || true
-    br=$(sudo -u "$DEPLOY" git -C "$r" branch --show-current 2>/dev/null)
+    sudo -u "$DEPLOY_USER" git -C "$r" fetch --quiet origin 2>/dev/null || true
+    br=$(sudo -u "$DEPLOY_USER" git -C "$r" branch --show-current 2>/dev/null)
     if [[ -n "$br" ]]; then
-        ahead=$(sudo -u "$DEPLOY" git -C "$r" rev-list --count "origin/$br..$br" 2>/dev/null || echo 0)
+        ahead=$(sudo -u "$DEPLOY_USER" git -C "$r" rev-list --count "origin/$br..$br" 2>/dev/null || echo 0)
         [[ "${ahead:-0}" -gt 0 ]] && problems="$problems\n           branch '$br' $ahead commit di depan origin/$br"
     fi
 
     unp=""
-    for b in $(sudo -u "$DEPLOY" git -C "$r" for-each-ref --format='%(refname:short)' refs/heads/ 2>/dev/null); do
-        sudo -u "$DEPLOY" git -C "$r" rev-parse --verify --quiet "origin/$b" >/dev/null 2>&1 || unp="$unp $b"
+    for b in $(sudo -u "$DEPLOY_USER" git -C "$r" for-each-ref --format='%(refname:short)' refs/heads/ 2>/dev/null); do
+        sudo -u "$DEPLOY_USER" git -C "$r" rev-parse --verify --quiet "origin/$b" >/dev/null 2>&1 || unp="$unp $b"
     done
     [[ -n "$unp" ]] && problems="$problems\n           branch tanpa remote:$unp"
 
@@ -183,7 +190,7 @@ for r in "${REPOS_DIR}"/* "$REPO_ROOT" "$DEPLOY_H/bec-repo"; do
     fi
 done
 echo "  ${DIM}kalau kamu tidak punya hak push ke sebuah repo, kerja tetap bisa diselamatkan:${OFF}"
-echo "  ${DIM}  sudo -u $DEPLOY git -C <repo> bundle create /tmp/<repo>.bundle --all${OFF}"
+echo "  ${DIM}  sudo -u $DEPLOY_USER git -C <repo> bundle create /tmp/<repo>.bundle --all${OFF}"
 echo "  ${DIM}file .bundle itu bisa di-clone langsung, dan .git-nya juga sudah ikut di srv.tar.zst.${OFF}"
 
 step "$ROOT_H — seluruh isi vs bundle"
