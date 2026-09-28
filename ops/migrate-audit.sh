@@ -169,18 +169,32 @@ for r in "${REPOS_DIR}"/* "$REPO_ROOT" "$DEPLOY_H/bec-repo"; do
     dirty=$(sudo -u "$DEPLOY_USER" git -C "$r" status --porcelain 2>/dev/null | wc -l)
     [[ "$dirty" -gt 0 ]] && problems="$problems\n           $dirty path belum di-commit"
 
-    sudo -u "$DEPLOY_USER" git -C "$r" fetch --quiet origin 2>/dev/null || true
+    sudo -u "$DEPLOY_USER" git -C "$r" fetch --quiet --all 2>/dev/null || true
+    remotes=$(sudo -u "$DEPLOY_USER" git -C "$r" remote 2>/dev/null)
+
     br=$(sudo -u "$DEPLOY_USER" git -C "$r" branch --show-current 2>/dev/null)
     if [[ -n "$br" ]]; then
-        ahead=$(sudo -u "$DEPLOY_USER" git -C "$r" rev-list --count "origin/$br..$br" 2>/dev/null || echo 0)
-        [[ "${ahead:-0}" -gt 0 ]] && problems="$problems\n           branch '$br' $ahead commit di depan origin/$br"
+        up=$(sudo -u "$DEPLOY_USER" git -C "$r" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)
+        if [[ -n "$up" ]]; then
+            ahead=$(sudo -u "$DEPLOY_USER" git -C "$r" rev-list --count "$up..$br" 2>/dev/null || echo 0)
+            [[ "${ahead:-0}" -gt 0 ]] && problems="$problems\n           branch '$br' $ahead commit di depan $up"
+        fi
     fi
 
+    # A branch is safe if ANY remote has it — not just origin. When the account
+    # cannot push to the upstream (karuhun-developer/ecommerce), the work may
+    # legitimately live in a mirror instead.
     unp=""
     for b in $(sudo -u "$DEPLOY_USER" git -C "$r" for-each-ref --format='%(refname:short)' refs/heads/ 2>/dev/null); do
-        sudo -u "$DEPLOY_USER" git -C "$r" rev-parse --verify --quiet "origin/$b" >/dev/null 2>&1 || unp="$unp $b"
+        found=""
+        for rem in $remotes; do
+            if sudo -u "$DEPLOY_USER" git -C "$r" rev-parse --verify --quiet "$rem/$b" >/dev/null 2>&1; then
+                found="$rem"; break
+            fi
+        done
+        [[ -z "$found" ]] && unp="$unp $b"
     done
-    [[ -n "$unp" ]] && problems="$problems\n           branch tanpa remote:$unp"
+    [[ -n "$unp" ]] && problems="$problems\n           branch tanpa remote mana pun:$unp"
 
     if [[ -n "$problems" ]]; then
         gap "$name — $(printf "$problems" | grep -c '^') temuan di atas"

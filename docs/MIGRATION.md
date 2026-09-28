@@ -57,6 +57,14 @@ Do these on the OLD box. They make the migration boring.
    easier to hand to someone.) On 2026-09-28 this mattered: `ecommerce` had
    **11 unpushed commits** and the account could READ but not WRITE
    `karuhun-developer/ecommerce`.
+
+   What was actually done with it: the three branches were pushed to a private
+   mirror under the account that owns the box,
+   **`karuqii9704/ecommerce-mirror`**, and the repo carries a `mirror` remote
+   for it (no token embedded — `origin` still points at the client's repo).
+   `migrate-audit.sh` therefore accepts a branch as safe if **any** remote has
+   it, not just `origin`. If write access to the upstream is granted later, the
+   branches are already sitting locally and only need `git push origin`.
 4. **`/srv/ojs-qa`** (the QA staging instance: dead containers, orphaned MySQL
    volume) is preserved automatically as its own archive. Its client reports,
    audit scripts and E2E harness travel; the OJS checkouts inside do not
