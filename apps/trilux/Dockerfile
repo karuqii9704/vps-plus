@@ -12,7 +12,13 @@ RUN npm install --omit=dev --no-audit --no-fund
 
 COPY server.js ./
 
-RUN addgroup -g 1001 -S nodejs && adduser -u 1001 -S trilux -G nodejs
+# The api/ handlers are copied here at boot (see server.js): they import
+# @vercel/blob from this image's node_modules, so they must live under /app
+# for ESM resolution to find it — /site is a read-only bind mount.
+# (chown must come AFTER the user exists.)
+RUN addgroup -g 1001 -S nodejs && adduser -u 1001 -S trilux -G nodejs \
+    && mkdir -p /app/api /app/data && chown -R trilux:nodejs /app/api /app/data
+
 USER trilux
 
 EXPOSE 8080

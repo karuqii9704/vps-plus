@@ -41,6 +41,25 @@ else
     warn "postgres is not running — no database dump taken"
 fi
 
+# --- mysql (OJS) ------------------------------------------------------------
+# OJS keeps its data in MySQL, not Postgres. Before this block existed ojs_local
+# had NO dump at all and the live datadir (/var/lib/mysql-ojs) was the only
+# copy — a lost VPS meant a lost journal. Never remove this section.
+MYSQL_DATABASES="${MYSQL_DATABASES:-ojs_local}"
+if command -v mysql >/dev/null 2>&1 && mysqladmin ping >/dev/null 2>&1; then
+    step "mysql"
+    for db in $MYSQL_DATABASES; do
+        [[ -n "$db" ]] || continue
+        out="$DEST/db-${db}-${STAMP}.sql.gz"
+        mysqldump --single-transaction --quick --routines --triggers \
+            --databases "$db" 2>/dev/null | gzip -9 > "$out"
+        chmod 600 "$out"
+        ok "$(basename "$out")  $(du -h "$out" | cut -f1)"
+    done
+else
+    warn "mysql is not running — no MySQL dump taken (OJS data is NOT protected)"
+fi
+
 # --- configuration ----------------------------------------------------------
 # The agent configs and the app env files. These hold live credentials, so the
 # archive is 600 and never leaves $DATA_DIR unencrypted.
@@ -60,7 +79,11 @@ tar -czf "$CONF_OUT" \
     "${HOME_DIR#/}/.claude" \
     "${HOME_DIR#/}/.gemini" \
     "${HOME_DIR#/}/.codex" \
+    "root/.hermes" \
+    "root/.ssh" \
+    "${HOME_DIR#/}/.ssh" \
     "${SRV_ROOT#/}/stack/apps" \
+    "${SRV_ROOT#/}/stack/stack.env" \
     "${SRV_ROOT#/}/vps.conf" \
     2>/dev/null || warn "tar reported missing paths (usually harmless)"
 
@@ -70,9 +93,41 @@ ok "$(basename "$CONF_OUT")  $(du -h "$CONF_OUT" | cut -f1)"
 # --- nginx + certs ----------------------------------------------------------
 step "nginx + tls"
 NGX_OUT="$DEST/nginx-${STAMP}.tar.gz"
-tar -czf "$NGX_OUT" /etc/nginx/sites-available /etc/letsencrypt 2>/dev/null || true
+# sites-enabled is included on purpose: the symlinks are what actually make a
+# vhost live, and `bootstrap.sh 80-nginx` only re-creates links for APP_KEYS —
+# so a vhost outside APP_KEYS (plus-office) exists ONLY if it travels here.
+tar -czf "$NGX_OUT" \
+    /etc/nginx/sites-available \
+    /etc/nginx/sites-enabled \
+    /etc/nginx/conf.d \
+    /etc/nginx/nginx.conf \
+    /etc/nginx/ssl \
+    /etc/letsencrypt 2>/dev/null || true
 chmod 600 "$NGX_OUT"
 ok "$(basename "$NGX_OUT")  $(du -h "$NGX_OUT" | cut -f1)"
+
+# --- system configuration ---------------------------------------------------
+# Everything hand-edited that a plain Ubuntu reinstall would NOT give back:
+# AppArmor local overrides (the OJS MySQL datadir lives outside /var/lib/mysql),
+# systemd drop-ins, the custom units, docker daemon.json, fail2ban jails, the
+# root crontab and the filebrowser DB.
+step "system config"
+SYS_OUT="$DEST/system-${STAMP}.tar.gz"
+tar -czf "$SYS_OUT" \
+    --warning=no-file-changed \
+    /etc/apparmor.d/local \
+    /etc/systemd/system/mysql.service.d \
+    /etc/systemd/system/filebrowser.service.d \
+    /etc/systemd/system/filebrowser.service \
+    /etc/systemd/system/ojs-queue.service \
+    /etc/systemd/system/ojs-scheduler.service \
+    /etc/docker/daemon.json \
+    /etc/fail2ban/jail.d \
+    /etc/filebrowser \
+    /var/spool/cron/crontabs \
+    2>/dev/null || warn "tar reported missing paths (usually harmless)"
+chmod 600 "$SYS_OUT"
+ok "$(basename "$SYS_OUT")  $(du -h "$SYS_OUT" | cut -f1)"
 
 # --- retention --------------------------------------------------------------
 step "retention"

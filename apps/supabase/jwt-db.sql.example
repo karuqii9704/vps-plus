@@ -1,0 +1,16 @@
+-- Shape of the per-database JWT settings that PostgREST and gotrue read.
+--
+-- The real jwt-db.sql is gitignored: it carries the live signing key, and
+-- anyone holding that key can mint a service_role token for the API in front
+-- of postgres. Render it from JWT_SECRET instead of committing it:
+--
+--   JWT=$(grep '^JWT_SECRET=' apps/supabase/supabase.env | cut -d= -f2-)
+--   sed "s/__JWT_SECRET__/$JWT/g" apps/supabase/jwt-db.sql.example \
+--     | docker exec -i vpsplus-postgres psql -U vpsplus -d plusthesite
+--
+-- (supabase stock jwt.sql, minus the secret)
+
+ALTER DATABASE plusthesite SET "app.settings.jwt_secret" TO '__JWT_SECRET__';
+ALTER DATABASE plusthesite SET "app.settings.jwt_exp" TO '3600';
+-- postgrest-14 needs the secret visible as app setting too
+ALTER DATABASE plusthesite SET "app.settings.jwt_secret" TO '__JWT_SECRET__';

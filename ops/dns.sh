@@ -67,10 +67,13 @@ api() { # api <method> <path> [body]
 # "www.plusthe.site" lives in the "plusthe.site" zone, but a naive last-two-
 # labels rule breaks on suffixes like .co.id. Ask the API instead: walk the
 # name from the left, and the first suffix that returns a zone is the right one.
+# Careful: Hostinger answers 200 with an empty JSON array for names that are
+# NOT zones, so "the request succeeded" must not be read as "this is a zone".
 find_zone() {
-    local fqdn="$1" candidate="$fqdn"
+    local fqdn="$1" candidate="$fqdn" resp
     while [[ "$candidate" == *.* ]]; do
-        if api GET "$candidate" >/dev/null 2>&1; then
+        resp="$(api GET "$candidate" 2>/dev/null)" || resp=""
+        if [[ -n "$resp" ]] && jq -e 'type == "array" and length > 0' >/dev/null 2>&1 <<<"$resp"; then
             printf '%s' "$candidate"
             return 0
         fi

@@ -1,0 +1,134 @@
+# Self-hosted Supabase API layer (PostgREST + GoTrue + Storage) for the
+# plusthesite database. NOT the full supabase/docker stack — just the three
+# services the apps actually talk to, fronted by the host nginx (same-origin
+# /rest/v1, /auth/v1, /storage/v1 on www and studio vhosts).
+#
+#   docker compose --env-file apps/supabase.env -f apps/supabase.compose.yml --profile supabase up -d
+#
+# Secrets (JWT, API keys, DB password) live in apps/supabase.env (600, gitignored).
+# Images pinned to supabase self-hosted/v0.8.0 (Aug 2026) versions.
+
+name: vpsplus
+
+x-common: &common
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+networks:
+  vpsplus:
+    name: vpsplus
+    external: true
+
+services:
+
+  rest:
+    container_name: vpsplus-supabase-rest
+    image: postgrest/postgrest:v14.12
+    <<: *common
+    networks: [vpsplus]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@postgres:5432/plusthesite
+      PGRST_DB_SCHEMAS: public,storage
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_DB_MAX_ROWS: "1000"
+      PGRST_DB_EXTRA_SEARCH_PATH: public,extensions
+      PGRST_ADMIN_SERVER_PORT: "3001"
+      PGRST_ADMIN_SERVER_HOST: 0.0.0.0
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET}
+      PGRST_APP_SETTINGS_JWT_EXP: ${JWT_EXPIRY}
+    ports:
+      - "127.0.0.1:3002:3000"
+    healthcheck:
+      test: ["CMD", "postgrest", "--ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+
+  auth:
+    container_name: vpsplus-supabase-auth
+    image: supabase/gotrue:v2.189.0
+    <<: *common
+    networks: [vpsplus]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: "9999"
+      API_EXTERNAL_URL: ${API_EXTERNAL_URL}
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@postgres:5432/plusthesite
+      GOTRUE_SITE_URL: ${SITE_URL}
+      GOTRUE_URI_ALLOW_LIST: ${ADDITIONAL_REDIRECT_URLS}
+      GOTRUE_DISABLE_SIGNUP: ${DISABLE_SIGNUP}
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: ${JWT_EXPIRY}
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+      GOTRUE_JWT_ISSUER: ${API_EXTERNAL_URL}
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: ${ENABLE_EMAIL_SIGNUP}
+      GOTRUE_MAILER_AUTOCONFIRM: ${ENABLE_EMAIL_AUTOCONFIRM}
+      # plain localhost:1025 allows password-recovery mails to be attempted
+      # without a relay; they queue at the MTA if one is ever added.
+      GOTRUE_SMTP_HOST: ${SMTP_HOST}
+      GOTRUE_SMTP_PORT: ${SMTP_PORT}
+      GOTRUE_SMTP_USER: ${SMTP_USER}
+      GOTRUE_SMTP_PASS: ${SMTP_PASS}
+      GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL}
+      GOTRUE_SMTP_SENDER_NAME: ${SMTP_SENDER_NAME}
+      GOTRUE_MAILER_URLPATHS_INVITE: ${MAILER_URLPATHS_INVITE}
+      GOTRUE_MAILER_URLPATHS_CONFIRMATION: ${MAILER_URLPATHS_CONFIRMATION}
+      GOTRUE_MAILER_URLPATHS_RECOVERY: ${MAILER_URLPATHS_RECOVERY}
+      GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: ${MAILER_URLPATHS_EMAIL_CHANGE}
+    ports:
+      - "127.0.0.1:3003:9999"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9999/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  storage:
+    container_name: vpsplus-supabase-storage
+    image: supabase/storage-api:v1.60.4
+    <<: *common
+    networks: [vpsplus]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rest:
+        condition: service_started
+    volumes:
+      - ${DATA_DIR:-/srv/data}/supabase-storage:/var/lib/storage
+    environment:
+      ANON_KEY: ${ANON_KEY}
+      SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      POSTGREST_URL: http://vpsplus-supabase-rest:3000
+      AUTH_JWT_SECRET: ${JWT_SECRET}
+      DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@postgres:5432/plusthesite
+      STORAGE_PUBLIC_URL: ${API_EXTERNAL_URL}
+      REQUEST_ALLOW_X_FORWARDED_PATH: "true"
+      FILE_SIZE_LIMIT: "52428800"
+      STORAGE_BACKEND: file
+      GLOBAL_S3_BUCKET: supabase-storage
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      TENANT_ID: storage
+      REGION: ap-southeast-1
+      # image transformation off — no imgproxy sidecar in this minimal stack
+      ENABLE_IMAGE_TRANSFORMATION: "false"
+    ports:
+      - "127.0.0.1:3004:5000"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:5000/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

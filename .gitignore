@@ -5,6 +5,16 @@ vps.conf
 stack/stack.env
 stack/apps/*.env
 !stack/apps/*.env.example
+apps/supabase/*.env
+
+# Derived from JWT_SECRET in apps/supabase/*.env — the checked-in copy carries
+# the live signing key, which would let anyone mint a service_role token for
+# the API that fronts postgres. The example file shows the shape.
+apps/supabase/jwt-db.sql
+!apps/supabase/jwt-db.sql.example
+
+# --- dependencies -----------------------------------------------------------
+node_modules/
 
 # The migration bundle: plaintext API keys and OAuth tokens once decrypted.
 vps-plus-bundle.tar.gz

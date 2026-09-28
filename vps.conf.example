@@ -77,6 +77,9 @@ POSTGRES_PASSWORD=
 # One database per app that actually needs one.
 POSTGRES_DATABASES="plusthesite nalar trilux"
 
+# MySQL databases (OJS and friends). Dumped by ops/backup.sh alongside Postgres.
+MYSQL_DATABASES="ojs_local"
+
 # --- misc -------------------------------------------------------------------
 SWAP_SIZE_GB=2        # 0 to skip. Anything under 4 GB RAM wants swap for builds.
 SSH_PORT=22

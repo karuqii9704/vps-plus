@@ -51,7 +51,7 @@ services:
       #   ssh -L 5432:127.0.0.1:5432 user@vps
       - "127.0.0.1:${PORT_POSTGRES:-5432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vpsplus} -d postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -132,3 +132,43 @@ services:
     environment:
       PORT: 3000
     ports: ["127.0.0.1:${PORT_NALAR:-3001}:3000"]
+
+  # ---------------------------------------------------------------------------
+  # ECOMMERCE — Laravel 13 + Livewire 4 + Flux UI multi-shop storefront.
+  # FPM only: the HOST nginx serves ${REPOS_DIR}/ecommerce/public and proxies
+  # PHP to 127.0.0.1:9001. network_mode host for the same reason as OJS — the
+  # mounted path must be identical inside/outside (nginx sends an absolute
+  # SCRIPT_FILENAME) and 127.0.0.1:5432 (postgres) must be reachable.
+  # A server.js/Dockerfile change needs an explicit build + up (not deploy.sh).
+  ecommerce-fpm:
+    profiles: [ecommerce]
+    container_name: vpsplus-ecommerce-fpm
+    <<: *common
+    build:
+      context: ${SRV_ROOT}/stack/ecommerce
+    image: vpsplus-ecommerce:latest
+    network_mode: host
+    user: "33:33"
+    volumes:
+      - ${REPOS_DIR}/ecommerce:${REPOS_DIR}/ecommerce
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@fsockopen('127.0.0.1',9001)?0:1);"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  ecommerce-queue:
+    profiles: [ecommerce]
+    container_name: vpsplus-ecommerce-queue
+    <<: *common
+    image: vpsplus-ecommerce:latest
+    network_mode: host
+    user: "33:33"
+    working_dir: ${REPOS_DIR}/ecommerce
+    healthcheck:
+      test: ["NONE"]
+    volumes:
+      - ${REPOS_DIR}/ecommerce:${REPOS_DIR}/ecommerce
+    command: ["php", "artisan", "queue:work", "--tries=3", "--max-time=3600"]
+

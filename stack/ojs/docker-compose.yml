@@ -1,0 +1,58 @@
+# Containerized biadenrekacipta OJS 3.5.0-5 (Fase 10c)
+# Pattern box ini: port loopback-only + nginx host stream/proxy.
+# Network mode host agar 127.0.0.1:9000 (nginx host) dan 127.0.0.1:3306
+# (mysql host, bind 127.0.0.1) keduanya reachable tanpa bridge tambahan.
+#
+# Bind mount pada path IDENTIK dengan host — nginx mengirim SCRIPT_FILENAME
+# absolut host; kalau beda path, semua request 404 (ditemukan live 2026-09-09).
+#
+# JANGAN jalankan `docker compose down` dari direktori stack utama dengan
+# --remove-orphans — service ini satu project name (vpsplus) supaya deploy.sh
+# tetap bekerja; konsisten dengan catatan orphan-container di SKILL.
+
+services:
+  ojs-fpm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: vpsplus-ojs:latest
+    container_name: vpsplus-ojs-fpm
+    restart: unless-stopped
+    network_mode: host
+    user: "33:33"
+    volumes:
+      - /var/www/biadenrekacipta/ojs:/var/www/biadenrekacipta/ojs
+      - /var/www/biadenrekacipta/ojs-files:/var/www/biadenrekacipta/ojs-files
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@fsockopen('127.0.0.1',9000)?0:1);"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  ojs-queue:
+    image: vpsplus-ojs:tools
+    container_name: vpsplus-ojs-queue
+    restart: unless-stopped
+    network_mode: host
+    user: "33:33"
+    # worker CLI: healthcheck TCP dari image tidak berlaku — disable
+    healthcheck:
+      test: ["NONE"]
+    volumes:
+      - /var/www/biadenrekacipta/ojs:/var/www/biadenrekacipta/ojs
+      - /var/www/biadenrekacipta/ojs-files:/var/www/biadenrekacipta/ojs-files
+    command: ["php", "lib/pkp/tools/jobs.php", "work"]
+
+  ojs-scheduler:
+    image: vpsplus-ojs:tools
+    container_name: vpsplus-ojs-scheduler
+    restart: unless-stopped
+    network_mode: host
+    user: "33:33"
+    healthcheck:
+      test: ["NONE"]
+    volumes:
+      - /var/www/biadenrekacipta/ojs:/var/www/biadenrekacipta/ojs
+      - /var/www/biadenrekacipta/ojs-files:/var/www/biadenrekacipta/ojs-files
+    command: ["php", "lib/pkp/tools/scheduler.php", "work"]
