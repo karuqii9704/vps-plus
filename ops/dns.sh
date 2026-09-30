@@ -114,14 +114,23 @@ plan_domain() {
         PLAN_DETAIL+=("$label  $fqdn  CNAME -> $existing_cname  (must go before an A record can exist)")
     fi
 
-    if [[ "$existing_a" == "$IP" ]]; then
+    # Compare the TTL as well as the IP. Matching on the IP alone made a
+    # TTL-only change impossible: the plan printed "already A" and exited before
+    # writing, so the pre-cutover step in the runbook -- drop the TTL first, so a
+    # rollback costs ~5 minutes instead of an hour -- silently did nothing and
+    # the cutover then shipped on the old hour-long TTL. A stale TTL is a real
+    # difference: it is exactly what the rollback window depends on.
+    existing_ttl="$(jq -r --arg n "$name" \
+        '[.[] | select(.name==$n and .type=="A") | .ttl] | unique | join(",")' <<<"$current_json")"
+
+    if [[ "$existing_a" == "$IP" && "$existing_ttl" == "$TTL" ]]; then
         PLAN_ZONE+=("$zone"); PLAN_NAME+=("$name")
         PLAN_ACTION+=("noop")
-        PLAN_DETAIL+=("$label  $fqdn  already A -> $IP")
+        PLAN_DETAIL+=("$label  $fqdn  already A -> $IP (ttl ${TTL}s)")
     else
         PLAN_ZONE+=("$zone"); PLAN_NAME+=("$name")
         PLAN_ACTION+=("set-a")
-        PLAN_DETAIL+=("$label  $fqdn  A ${existing_a:-(none)} -> $IP")
+        PLAN_DETAIL+=("$label  $fqdn  A ${existing_a:-(none)} -> $IP  ttl ${existing_ttl:-?}s -> ${TTL}s")
     fi
 }
 
