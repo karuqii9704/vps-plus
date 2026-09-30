@@ -41,6 +41,7 @@ DRY_RUN=0
 DO_VERIFY=1
 FORCE=0
 WITH_OJS_QA=0
+ASSUME_YES=0
 BUNDLE=""
 
 usage() { sed -n '2,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
@@ -52,6 +53,11 @@ while [[ $# -gt 0 ]]; do
         --no-verify) DO_VERIFY=0; shift ;;
         --force)     FORCE=1; shift ;;
         --with-ojs-qa) WITH_OJS_QA=1; shift ;;
+        # Non-interactive: never prompt. Steps that would ask a question take
+        # their documented default instead, so this can run unattended from
+        # migrate-golive.sh (or over ssh, where a prompt is an EOF and a
+        # silently skipped step).
+        --yes|-y)    ASSUME_YES=1; shift ;;
         -h|--help)   usage; exit 0 ;;
         -*)          die "unknown option: $1 (try --help)" ;;
         *)           BUNDLE="$1"; shift ;;
@@ -283,25 +289,59 @@ if phase_enabled db; then
     fi
 
     # --- mysql (OJS) ---
+    # bootstrap has no MySQL stage: OJS is not in APP_KEYS, so the server, the
+    # custom datadir and the app user are all this script's job. Doing it here
+    # (rather than printing a warning) is what lets --yes bring the box up
+    # without a human reading the fine print.
     if ! command -v mysql >/dev/null 2>&1; then
-        warn "mysql client absent — install mysql-server first (docs/MIGRATION.md, phase db)"
-    else
+        if (( DRY_RUN )); then
+            printf '   \033[2mwould run:\033[0m apt-get install -y mysql-server\n'
+        else
+            info "installing mysql-server (needed for OJS; bootstrap has no stage for it)"
+            DEBIAN_FRONTEND=noninteractive apt-get update -qq 2>/dev/null || true
+            if DEBIAN_FRONTEND=noninteractive apt-get -y -qq install mysql-server >/dev/null 2>&1; then
+                ok "mysql-server installed"
+            else
+                warn "mysql-server install failed — OJS database will not restore"
+            fi
+        fi
+    fi
+
+    if command -v mysql >/dev/null 2>&1; then
         # Custom datadir: the box moved MySQL out of /var/lib/mysql entirely and
-        # carries a systemd override + AppArmor exception to match.
+        # carries a systemd override + AppArmor exception to match. Both travel
+        # in etc-system.tar.zst, so they are already on disk at this point.
         if [[ ! -s "$MYSQL_DATADIR/ibdata1" ]]; then
             warn "MySQL datadir $MYSQL_DATADIR is empty"
             if (( DRY_RUN )); then
                 printf '   \033[2mwould run:\033[0m mysqld --initialize-insecure --datadir=%s\n' "$MYSQL_DATADIR"
             else
-                read -r -p "   Initialize a fresh MySQL datadir at $MYSQL_DATADIR? [y/N] " a
+                a="n"
+                if (( ASSUME_YES )); then
+                    a="y"
+                else
+                    read -r -p "   Initialize a fresh MySQL datadir at $MYSQL_DATADIR? [y/N] " a
+                fi
                 if [[ "${a,,}" == y* ]]; then
+                    apparmor_parser -r /etc/apparmor.d/usr.sbin.mysqld 2>/dev/null || true
                     install -d -o mysql -g mysql -m 750 "$MYSQL_DATADIR"
-                    mysqld --initialize-insecure --user=mysql --datadir="$MYSQL_DATADIR" \
-                        && ok "datadir initialized (root has no password — set one!)"
+                    mysqld --initialize-insecure --user=mysql --datadir="$MYSQL_DATADIR" >/dev/null 2>&1 \
+                        && ok "datadir initialized (root has no password — set one!)" \
+                        || warn "datadir initialization failed"
                 else
                     warn "skipped — MySQL restore will not work until the datadir exists"
                 fi
             fi
+        fi
+
+        # The override points mysqld at the custom datadir, so it must be up
+        # before the dumps land.
+        if (( ! DRY_RUN )) && ! mysqladmin ping >/dev/null 2>&1; then
+            systemctl reset-failed mysql 2>/dev/null || true
+            systemctl enable --now mysql >/dev/null 2>&1 || true
+            sleep 4
+            mysqladmin ping >/dev/null 2>&1 && ok "mysqld started" \
+                || warn "mysqld did not start — check: journalctl -u mysql -n 20"
         fi
 
         if (( ! DRY_RUN )) && command -v mysqladmin >/dev/null 2>&1 && mysqladmin ping >/dev/null 2>&1; then
