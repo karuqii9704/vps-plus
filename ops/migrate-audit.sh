@@ -133,6 +133,8 @@ for d in /usr/local/bin /usr/local/lib/*/; do
             b="usr/local/bin/$(basename "$f")"
             if have usr-local "$b"; then ok "$b"
             elif dpkg -S "$f" >/dev/null 2>&1; then :
+            elif [[ "$(readlink -f "$f" 2>/dev/null)" == /usr/local/qcloud/* ]]; then
+                nb "$b — symlink ke agen cloud provider (/usr/local/qcloud), dipasang image"
             else gap "$b ($(du -h "$f" 2>/dev/null | cut -f1)) — tidak di bundle"; fi
         done
     else
@@ -168,16 +170,23 @@ for r in "${REPOS_DIR}"/* "$REPO_ROOT" "$DEPLOY_H/bec-repo"; do
 
     dirty=$(sudo -u "$DEPLOY_USER" git -C "$r" status --porcelain 2>/dev/null | wc -l)
     [[ "$dirty" -gt 0 ]] && problems="$problems\n           $dirty path belum di-commit"
+    notes=""
 
     sudo -u "$DEPLOY_USER" git -C "$r" fetch --quiet --all 2>/dev/null || true
     remotes=$(sudo -u "$DEPLOY_USER" git -C "$r" remote 2>/dev/null)
 
+    # Ahead of your OWN upstream is not migration risk by itself: those commits
+    # may already live on the remote under another name. trilux-design-page's
+    # master is 10 ahead of origin/master, yet every one of them is also on
+    # origin/backup/master-2026-09-26. The reachability loop below is the real
+    # gate, so this is a NOTE -- as a GAP it called safe work lost and
+    # contradicted that loop.
     br=$(sudo -u "$DEPLOY_USER" git -C "$r" branch --show-current 2>/dev/null)
     if [[ -n "$br" ]]; then
         up=$(sudo -u "$DEPLOY_USER" git -C "$r" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)
         if [[ -n "$up" ]]; then
             ahead=$(sudo -u "$DEPLOY_USER" git -C "$r" rev-list --count "$up..$br" 2>/dev/null || echo 0)
-            [[ "${ahead:-0}" -gt 0 ]] && problems="$problems\n           branch '$br' $ahead commit di depan $up"
+            [[ "${ahead:-0}" -gt 0 ]] && notes="$notes\n           branch '$br' $ahead commit di depan $up -- cek reachability di bawah"
         fi
     fi
 
@@ -199,6 +208,9 @@ for r in "${REPOS_DIR}"/* "$REPO_ROOT" "$DEPLOY_H/bec-repo"; do
     else
         ok "$name — bersih & semua branch ada di remote"
     fi
+    [[ -n "$notes" ]] && printf "$notes\n" | grep . | while IFS= read -r l; do
+        nb "$(sed 's/^ *//' <<<"$l")"
+    done
 done
 echo "  ${DIM}kalau kamu tidak punya hak push ke sebuah repo, kerja tetap bisa diselamatkan:${OFF}"
 echo "  ${DIM}  sudo -u $DEPLOY_USER git -C <repo> bundle create /tmp/<repo>.bundle --all${OFF}"
@@ -210,6 +222,12 @@ for e in $(ls -A "$ROOT_H" 2>/dev/null); do
     else
         case "$e" in
             .cache|.npm|.cua-driver) nb "$ROOT_H/$e ($(du -sh "$ROOT_H/$e" 2>/dev/null | cut -f1)) — rebuildable, sengaja di-exclude" ;;
+            # Written by the Tencent image on first boot, minutes before the
+            # restore: pip/npm/easy_install pointed at the regional mirrors.
+            # They are provisioning, not migration content, so the bundle has
+            # nothing to carry — and they are regenerated if the image is.
+            .npmrc|.pip|.pydistutils.cfg)
+                nb "$ROOT_H/$e — provisioning image (mirror Tencent), bukan isi migrasi" ;;
             *) gap "$ROOT_H/$e ($(du -sh "$ROOT_H/$e" 2>/dev/null | cut -f1))" ;;
         esac
     fi
@@ -237,6 +255,8 @@ for s in $(systemctl list-units --type=service --state=running --no-pager --no-l
         /etc/systemd/system/*)
             b="etc/systemd/system/$(basename "$p")"
             if have etc-system "$b"; then ok "$s (custom) — $p"
+            elif systemctl show -p ExecStart --value "$s" 2>/dev/null | grep -q '/usr/local/qcloud/'; then
+                nb "$s (custom) — $p — ExecStart di /usr/local/qcloud (agen provider), dipasang image"
             else gap "$s (custom) — $p TIDAK di bundle"; fi ;;
         "") nb "$s — tanpa FragmentPath (generated?)" ;;
         *)  : ;;   # paket: dipasang ulang oleh bootstrap
@@ -258,6 +278,10 @@ step "deliverable / berkas penting yang hanya ada di luar bundle"
 find "$ROOT_H" -maxdepth 1 -type f 2>/dev/null | while read -r f; do
     if have hermes-root "$(basename "$ROOT_H")/$(basename "$f")"; then continue; fi
     b=$(basename "$f")
+    case "$b" in
+        .npmrc|.pydistutils.cfg)
+            nb "$b — provisioning image (mirror Tencent), bukan isi migrasi"; continue ;;
+    esac
     if find /srv "$DEPLOY_H" -name "$b" 2>/dev/null | grep -q .; then
         nb "$b — ada salinan lain"
     else
