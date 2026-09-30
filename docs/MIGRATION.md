@@ -283,11 +283,48 @@ Order matters. Doing these out of order causes avoidable breakage.
    pushed. That is the check doing its job, not a broken bundle. Stop the
    agents, commit and push, and only then expect a green audit. Any line saying
    `PUSH BEFORE MIGRATING` has to be resolved before the cutover, not after.
+   Reaching the old box from the new one:
+   ```
+   sudo ssh -i /root/.ssh/id_ed25519 plus@<old-ip>
+   ```
+   **`plus`, not `root`.** The old box sets `PermitRootLogin no`, so the same
+   key can never log in as root — use a user that can sudo instead of
+   loosening sshd. `plus` has `NOPASSWD: ALL`, so nothing is lost. An earlier
+   version of this step said `root@` and cost a detour into "why is the key
+   rejected".
+
+   The gateway runs as root's *user* unit, which needs root's session bus. A
+   non-login SSH session has no `XDG_RUNTIME_DIR`, so `systemctl --user` cannot
+   find the session and fails as though the unit did not exist:
+   ```
+   sudo XDG_RUNTIME_DIR=/run/user/0 systemctl --user stop hermes-gateway
+   ```
+   Check the agents rather than assuming them gone: `pgrep -fa run-agent`
+   prints *matching* lines, and a bare `pgrep -fc '<pattern>'` also matches
+   its own command line — it reports `1` with zero agents alive. Read the
+   matched line, not the count.
+
 3. **DNS**: point the A records at the new IP.
    ```
    ops/dns.sh --dry-run       # compare the plan against this list before applying
    ops/dns.sh --apply
    ```
+   **Lower the TTL first, and wait one old-TTL period.** On a 3600s TTL, any
+   resolver that cached the record just before the change keeps sending
+   traffic to the old box for up to an hour — which turns the 5-minute
+   rollback you are trying to buy into an hour-long one, and makes "did the
+   cutover work?" unanswerable while it runs. The wait is free because both
+   boxes serve the same content.
+   ```
+   ops/dns.sh --apply --ip <old-ip> --ttl 300   # same address, shorter timer
+   #   then wait one old-TTL period; probe it rather than trusting the clock:
+   #     dig @1.1.1.1 <host> A     # keep going until the reported TTL is <= 300
+   ops/dns.sh --apply --ttl 300                 # now move it
+   ```
+   Pass `--ttl 300` on the cutover as well. The default is 3600, so leaving it
+   off silently restores the hour-long rollback window you just paid an hour
+   to avoid.
+
    Verify on the **authoritative** nameserver, not `1.1.1.1` — public resolvers
    keep the old TTL, the VPS's own resolver is instant.
    ```
