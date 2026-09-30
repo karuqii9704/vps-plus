@@ -355,11 +355,13 @@ Order matters. Doing these out of order causes avoidable breakage.
 
 ## Phase 5 — keep the old box
 
-Do **not** delete it. Leave it powered off but intact for 3–7 days:
+Do **not** delete it, and **do not power it off.** Leave it running and
+intact for 3–7 days:
 
-- DNS has stale caches in the wild for a while
-- TLS renewal, queue workers and cron jobs may still be scheduled against it
-- the old box is the rollback
+A stopped box cannot serve the rollback it is being kept for. While stale DNS
+caches are still in the wild they will send real visitors here, and a powered
+off box answers them with a refused connection instead of the site. Queue
+workers, cron and certbot are also still scheduled against it.
 
 Once the new box has run for a week with a green `ops/backup.sh`, then destroy
 the old one.
