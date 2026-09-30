@@ -72,6 +72,23 @@ ALT
     fi
 
     out="/etc/nginx/sites-available/${key}.conf"
+
+    # NEVER clobber a vhost that already exists. On a migration the bundle has
+    # just restored the real file, which carries what certbot wrote into it:
+    # the `listen 443 ssl` blocks, the certificate paths, the http->https
+    # redirect. Re-rendering from the template silently drops every one of
+    # those, leaving the site on plain HTTP only — and because no 443 server
+    # matches that hostname any more, nginx falls back to the FIRST 443 server
+    # in the config and serves a different site (or its 502) under that name.
+    # This is not theoretical: it took trilux, www and studio off HTTPS on the
+    # 2026-09-30 migration until it was spotted.
+    if [[ -f "$out" && "${VPSPLUS_NGINX_FORCE:-0}" != "1" ]]; then
+        ln -sfn "$out" "/etc/nginx/sites-enabled/${key}.conf"
+        ok "$key: vhost sudah ada — dibiarkan apa adanya (setel VPSPLUS_NGINX_FORCE=1 untuk render ulang)"
+        rendered=$((rendered+1))
+        continue
+    fi
+
     sed -e "s|__DOMAIN__|${domain}|g" \
         -e "s|__PORT__|${port}|g" \
         -e "s|__APP__|${key}|g" \

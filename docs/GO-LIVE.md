@@ -136,16 +136,36 @@ box was running. `migrate-import.sh` writes this file for you.
 
 **5. The sites return 502 while every container says `healthy`.** This is not an
 nginx problem. `plus`, `studio` and `trilux` answer fine on `127.0.0.1:3000`,
-`8080` and `8787`; the 502s are only the three stacks bootstrap does not start:
+`8080` and `8787`; the 502s are only the stacks bootstrap does not start.
+**`bootstrap.sh` mentions `ecommerce` and `supabase` exactly zero times** —
+`APP_KEYS=(plus studio trilux nalar)`. The exact commands, read off the compose
+labels on the old box's own containers:
 
 ```
-docker compose -f stack/ojs/docker-compose.yml up -d --build      # OJS  :9000
-docker compose -f /srv/plus-office/docker-compose.office.yml up -d --build   # :3100
-systemctl start ojs-queue ojs-scheduler filebrowser
+# OJS — its own compose project
+docker compose -f stack/ojs/docker-compose.yml up -d --build          # fpm :9000
+systemctl start ojs-queue ojs-scheduler
+
+# supabase — BOTH files, merged. apps/supabase.compose.yml declares
+# `depends_on: postgres`, and postgres is defined in stack/docker-compose.yml
+# behind the `db` profile. Run supabase's file alone and compose refuses with
+# "service \"auth\" depends on undefined service \"postgres\"". The running
+# containers carry both config_files for exactly this reason.
+docker compose -f stack/docker-compose.yml -f apps/supabase.compose.yml \
+    --env-file apps/supabase/supabase.env --profile db up -d
+
+# ecommerce — a bind-mount + FPM container inside stack/docker-compose.yml,
+# behind the `ecommerce` profile. Without the profile compose prints
+# "no service selected" and exits 0, which looks like success.
+docker compose -f stack/docker-compose.yml --profile ecommerce up -d --build   # fpm :9001
+
+# plus-office — a local build, on no registry
+docker compose -f /srv/plus-office/docker-compose.office.yml up -d --build     # :3100
 ```
 
-`ecommerce` (fpm `:9001`) lives in `stack/docker-compose.yml` with the other
-apps, not in its own repo.
+`ecommerce` has no compose file of its own — it lives in the main stack. Updates
+go through `ops/deploy-ecommerce.sh`, which is a pull plus an in-container
+`artisan` run, not an image rebuild.
 
 **6. SSH starts refusing connections mid-run.** `ufw limit 22/tcp` rejects more
 than ~6 new connections in 30 seconds, and a script that loops over `ssh` per

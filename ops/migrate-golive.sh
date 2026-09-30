@@ -126,21 +126,83 @@ step "9. ownership + verifikasi akhir import"
 
 # ------------------------------------------------ 10. yang tidak ada di APP_KEYS
 step "10. nyalakan yang bootstrap tidak tahu"
+# OJS: its own compose project, not in APP_KEYS.
 if [[ -f "$REPO/stack/ojs/docker-compose.yml" ]]; then
     ( cd "$REPO" && docker compose -f stack/ojs/docker-compose.yml up -d --build 2>&1 | tail -6 )
     systemctl enable --now ojs-queue ojs-scheduler >/dev/null 2>&1
     ok "OJS: $(docker ps --filter name=vpsplus-ojs --format '{{.Names}}' | tr '\n' ' ')"
 fi
+
+# supabase: MUST be merged with the main stack. apps/supabase.compose.yml
+# declares `depends_on: postgres`, and postgres is defined in
+# stack/docker-compose.yml behind the `db` profile — run supabase's file alone
+# and compose refuses with "depends on undefined service postgres". The
+# containers on the old box carry both config_files for exactly this reason.
 if [[ -f "$REPO/apps/supabase.compose.yml" ]]; then
-    docker compose -f "$REPO/apps/supabase.compose.yml" \
-        --env-file "$REPO/apps/supabase/supabase.env" up -d 2>&1 | tail -5
-    ok "supabase: $(docker ps --filter name=supabase --format '{{.Names}}' | tr '\n' ' ')"
+    docker compose -f "$REPO/stack/docker-compose.yml" \
+                   -f "$REPO/apps/supabase.compose.yml" \
+                   --env-file "$REPO/apps/supabase/supabase.env" \
+                   --profile db up -d 2>&1 | tail -8
+
+    # pg_dump never carries role passwords, and apps/supabase/roles.sql creates
+    # the roles bare. Without this, PostgREST and GoTrue crash-loop with
+    # "password authentication failed for user authenticator". The passwords the
+    # stack expects are inline in supabase.compose.yml, which travels in the
+    # bundle — so read them from there and align the roles. Passwords are never
+    # printed.
+    align_role() { # <role> <password>
+        docker exec vpsplus-postgres psql -U vpsplus -d postgres -q \
+            -c "ALTER ROLE \"$1\" WITH LOGIN PASSWORD '$2';" >/dev/null 2>&1 \
+            && ok "role $1: password diselaraskan" || bad "role $1: gagal diselaraskan"
+    }
+    supabase_uri_pw() { # <ENVVAR> -> user password
+        grep -oE "$1: *postgres://[^ ]+" "$REPO/apps/supabase.compose.yml" | head -1 \
+            | sed -E 's#.*://([^:]+):([^@]+)@.*#\1 \2#'
+    }
+    if docker inspect vpsplus-postgres >/dev/null 2>&1; then
+        while read -r u p; do
+            [[ -n "$u" && -n "$p" ]] && align_role "$u" "$p"
+        done < <(
+            for v in PGRST_DB_URI GOTRUE_DB_DATABASE_URL DATABASE_URL; do
+                supabase_uri_pw "$v"; echo
+            done
+        )
+        docker restart vpsplus-supabase-rest vpsplus-supabase-auth vpsplus-supabase-storage >/dev/null 2>&1 || true
+        sleep 6
+    fi
+    ok "supabase: $(docker ps --filter name=vpsplus-supabase --format '{{.Names}}' | tr '\n' ' ')"
 fi
+
+# ecommerce is a bind-mount + FPM container inside stack/docker-compose.yml,
+# behind the `ecommerce` profile. APP_KEYS does not list it, so bootstrap never
+# starts it and nginx answers 502 on ecommerce.plusthe.site.
+#
+# NOTE the --env-file: compose does NOT read vps.conf. install/60-postgres.sh
+# writes stack/stack.env and that is what supplies SRV_ROOT and REPOS_DIR. Run
+# compose without it and the build context resolves to "/stack/ecommerce"
+# (SRV_ROOT empty) and the build fails with "path not found".
+if grep -q "profiles: \[ecommerce\]" "$REPO/stack/docker-compose.yml" 2>/dev/null; then
+    if [[ -f "$REPO/stack/stack.env" ]]; then
+        ( cd "$REPO" && docker compose --env-file stack/stack.env \
+              -f stack/docker-compose.yml --profile ecommerce up -d --build 2>&1 | tail -6 )
+        ok "ecommerce: $(docker ps --filter name=vpsplus-ecommerce --format '{{.Names}}' | tr '\n' ' ')"
+    else
+        bad "stack/stack.env tidak ada — jalankan bootstrap 60-postgres dulu"
+    fi
+fi
+
+# plus-office: a LOCAL build. plus-office:latest is on no registry.
 if [[ -f /srv/plus-office/docker-compose.office.yml ]]; then
     docker compose -f /srv/plus-office/docker-compose.office.yml up -d --build 2>&1 | tail -5
     ok "plus-office: $(docker ps --filter name=plusoffice --format '{{.Names}}' | tr '\n' ' ')"
 fi
 systemctl enable --now filebrowser >/dev/null 2>&1 || true
+
+# OJS workers wait for the database; give them a nudge once everything is up.
+for u in ojs-queue ojs-scheduler; do
+    systemctl is-active --quiet "$u" || systemctl restart "$u" >/dev/null 2>&1 || true
+done
+ok "unit: mysql=$(systemctl is-active mysql) ojs-queue=$(systemctl is-active ojs-queue) ojs-scheduler=$(systemctl is-active ojs-scheduler) filebrowser=$(systemctl is-active filebrowser)"
 
 # --------------------------------------------------------------- 11. smoke test
 step "11. smoke test tiap domain (lewat loopback, DNS belum disentuh)"
