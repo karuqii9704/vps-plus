@@ -75,32 +75,59 @@ if [[ $FREEZE -eq 1 ]]; then
         note "gateway Hermes tidak aktif"
     fi
 
-    n=$(pgrep -fc 'run-agent.sh' 2>/dev/null || echo 0)
+    n=$(pgrep -f '/srv/hq/run-agent\.sh' 2>/dev/null | wc -l)
     if [[ "${n:-0}" -gt 0 ]]; then
         pkill -f '/srv/hq/run-agent.sh' 2>/dev/null
         sleep 3
-        left=$(pgrep -fc 'run-agent.sh' 2>/dev/null || echo 0)
+        left=$(pgrep -f '/srv/hq/run-agent\.sh' 2>/dev/null | wc -l)
         [[ "${left:-0}" -eq 0 ]] && ok "$n proses agent dihentikan" || bad "$left proses agent masih hidup"
     else
         note "tidak ada proses agent"
     fi
-    sudo -u "$DEPLOY_USER" tmux kill-server 2>/dev/null && ok "sesi tmux agent ditutup" || note "tmux sudah bersih"
+    # kill-server takes the whole tmux server with it, which is what stops the
+    # agent sessions; it exits non-zero when no server is running, which is not
+    # a failure worth reporting as one.
+    if sudo -u "$DEPLOY_USER" tmux has-session 2>/dev/null; then
+        sudo -u "$DEPLOY_USER" tmux kill-server 2>/dev/null
+        sudo -u "$DEPLOY_USER" tmux has-session 2>/dev/null \
+            && bad "sesi tmux masih hidup" || ok "server tmux dihentikan (semua sesi agent ikut)"
+    else
+        note "tidak ada server tmux"
+    fi
 
     step "commit + push setiap checkout (kerja yang hanya di box ini = hilang)"
     for r in /srv/repos/* "$REPO" "$DEPLOY_H/bec-repo"; do
         [[ -d "$r/.git" ]] || continue
         name=$(basename "$r")
-        if [[ -n "$(sudo -u "$DEPLOY_USER" git -C "$r" status --porcelain 2>/dev/null)" ]]; then
-            sudo -u "$DEPLOY_USER" git -C "$r" add -A 2>/dev/null
-            sudo -u "$DEPLOY_USER" git -C "$r" commit -q \
-                -m "chore: freeze working tree before the VPS cutover" 2>/dev/null \
+        g() { sudo -u "$DEPLOY_USER" git -C "$r" "$@"; }
+
+        if [[ -n "$(g status --porcelain 2>/dev/null)" ]]; then
+            g add -A 2>/dev/null
+            g commit -q -m "chore: freeze working tree before the VPS cutover" 2>/dev/null \
                 && ok "$name — perubahan di-commit" || bad "$name — commit gagal"
         fi
-        for b in $(sudo -u "$DEPLOY_USER" git -C "$r" for-each-ref --format='%(refname:short)' refs/heads/ 2>/dev/null); do
-            out=$(sudo -u "$DEPLOY_USER" git -C "$r" push -u origin "$b" 2>&1 | tail -1)
+
+        for b in $(g for-each-ref --format='%(refname:short)' refs/heads/ 2>/dev/null); do
+            tip=$(g rev-parse "$b" 2>/dev/null)
+
+            # Already on SOME remote? Then nothing to push, whatever the branch
+            # is called there. This is the case that matters: a stale local
+            # `master` whose commits live on the remote as `agent/...`, or work
+            # pushed to a mirror because the upstream is read-only.
+            if g branch -r --contains "$tip" 2>/dev/null | grep -q .; then
+                continue
+            fi
+
+            # Pick a remote that actually has this branch, else origin.
+            target=origin
+            for rem in $(g remote 2>/dev/null); do
+                if g rev-parse --verify --quiet "$rem/$b" >/dev/null 2>&1; then target="$rem"; break; fi
+            done
+
+            out=$(g push -u "$target" "$b" 2>&1 | tail -1)
             case "$out" in
-                *"Everything up-to-date"*|*"->"*|*"set up to track"*) : ;;
-                *) bad "$name/$b — $out" ;;
+                *"Everything up-to-date"*|*"->"*|*"set up to track"*) ok "$name/$b -> $target" ;;
+                *) bad "$name/$b -> $target — $out" ;;
             esac
         done
     done

@@ -181,20 +181,17 @@ for r in "${REPOS_DIR}"/* "$REPO_ROOT" "$DEPLOY_H/bec-repo"; do
         fi
     fi
 
-    # A branch is safe if ANY remote has it — not just origin. When the account
-    # cannot push to the upstream (karuhun-developer/ecommerce), the work may
-    # legitimately live in a mirror instead.
+    # A branch is safe if its tip commit is reachable from ANY remote-tracking
+    # ref. Two traps this avoids: a stale local `master` whose commits already
+    # live on the remote under `agent/...`, and work pushed to a mirror because
+    # the upstream is read-only. Comparing branch NAMES gets both wrong.
     unp=""
     for b in $(sudo -u "$DEPLOY_USER" git -C "$r" for-each-ref --format='%(refname:short)' refs/heads/ 2>/dev/null); do
-        found=""
-        for rem in $remotes; do
-            if sudo -u "$DEPLOY_USER" git -C "$r" rev-parse --verify --quiet "$rem/$b" >/dev/null 2>&1; then
-                found="$rem"; break
-            fi
-        done
-        [[ -z "$found" ]] && unp="$unp $b"
+        tip=$(sudo -u "$DEPLOY_USER" git -C "$r" rev-parse "$b" 2>/dev/null)
+        sudo -u "$DEPLOY_USER" git -C "$r" branch -r --contains "$tip" 2>/dev/null | grep -q . \
+            || unp="$unp $b"
     done
-    [[ -n "$unp" ]] && problems="$problems\n           branch tanpa remote mana pun:$unp"
+    [[ -n "$unp" ]] && problems="$problems\n           commit tidak ada di remote mana pun:$unp"
 
     if [[ -n "$problems" ]]; then
         gap "$name — $(printf "$problems" | grep -c '^') temuan di atas"
