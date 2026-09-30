@@ -26,7 +26,9 @@ DEPLOY_H="$(getent passwd "$DEPLOY_USER" | cut -d: -f6)"; DEPLOY_H="${DEPLOY_H:-
 
 TARGET="${1:-}"; shift || true
 FREEZE=0
-for a in "$@"; do [[ "$a" == "--freeze" ]] && FREEZE=1; done
+for a in "$@"; do
+    [[ "$a" == "--freeze" ]] && FREEZE=1
+done
 
 [[ -n "$TARGET" ]] || { bad "usage: migrate-go.sh <user@new-host> [--freeze]"; exit 2; }
 [[ -n "$BUNDLE" && -d "$BUNDLE/archives" ]] || { bad "no bundle found — run ops/migrate-export.sh first"; exit 2; }
@@ -56,11 +58,19 @@ ssh -o BatchMode=yes "$TARGET" 'command -v rsync >/dev/null' 2>/dev/null \
 
 # ------------------------------------------------------------------- freeze
 if [[ $FREEZE -eq 1 ]]; then
-    step "FREEZE: hentikan gateway + tim agent"
+    step "FREEZE: hentikan tim agent (gateway tetap hidup)"
     note "satu bot token = satu poller; dua-duanya jalan = pesan Telegram hilang"
 
+    # The gateway is the operator's own Telegram channel. Stopping it from
+    # inside the agent would silence the agent mid-migration (SIGTERM
+    # propagates), so this script never issues that command at all — and the
+    # tooling blocks it if it appears here. It belongs immediately before the
+    # NEW box's gateway starts, which is after the import: the exact command is
+    # in docs/MIGRATION.md, Phase 4 step 2. Run it yourself, from a shell that
+    # is not the gateway.
     if systemctl --user is-active --quiet hermes-gateway 2>/dev/null; then
-        systemctl --user stop hermes-gateway && ok "gateway Hermes dihentikan" || bad "gateway gagal dihentikan"
+        note "gateway Hermes DIBIARKAN HIDUP (itu jalur bicara operator ke agent)"
+        note "matikan dia nanti — lihat docs/MIGRATION.md Phase 4 langkah 2"
     else
         note "gateway Hermes tidak aktif"
     fi
