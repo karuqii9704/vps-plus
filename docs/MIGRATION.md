@@ -138,7 +138,8 @@ Then push it:
 ## Phase 2 — bring the new box to the starting line
 
 New VPS: Ubuntu 24.04, x86_64, **at least the same RAM/CPU as the old one**
-(this box runs ollama, so 8 GB / 2 vCPU is the floor).
+(8 GB / 2 vCPU is the floor — this box runs 13 containers, the OJS stack, a
+Supabase mini-stack and 11 agent sessions on 7.8 GB, and holds 1.2 GB in swap).
 
 `ops/migrate-import.sh` is an untracked file — it only exists on the old box
 until it is committed and pushed. Either push it first:
@@ -209,8 +210,9 @@ docker compose -f apps/supabase.compose.yml \
 # plus-office — a LOCAL BUILD, not a pull: plus-office:latest has build layers
 # and exists on no registry. The source + .env.office travel in the bundle.
 docker compose -f /srv/plus-office/docker-compose.office.yml up -d --build
-#   its ollama profile is optional and dormant here (see below); skip it with
-#   the default profile. To re-enable offline inference:
+#   its ollama profile is NO LONGER provisioned: the 9.28 GB image and the
+#   2.1 GB model volume were deleted on 2026-09-28 (see below). Re-adding it
+#   means a fresh ~9 GB pull and a GPU-less runtime:
 #   docker compose -f /srv/plus-office/docker-compose.office.yml --profile local-llm up -d --build
 
 # Hermes gateway — a systemd --USER unit for root, so it is invisible to
@@ -223,10 +225,11 @@ XDG_RUNTIME_DIR=/run/user/0 systemctl --user start hermes-gateway
 
 **plus-office does not need ollama.** `detectProvider()` prefers
 `ANTHROPIC_API_KEY`, the container has it, so the active provider is Anthropic
-(`claude-haiku-4-5` / `claude-opus-5`). Ollama is only the last-resort fallback
-and its container has been stopped since 2026-09-25. Dropping it saves ~11 GB
-(9.28 GB image, of which ~4.75 GB is CUDA/MLX/Vulkan backends useless on a
-CPU-only VPS — plus a 2.1 GB model volume).
+(`claude-haiku-4-5` / `claude-opus-5`). Ollama was only the last-resort fallback
+and its container had been stopped since 2026-09-25, so it was removed on
+2026-09-28: 9.28 GB image (of which ~4.75 GB is CUDA/MLX/Vulkan backends, useless
+on a CPU-only VPS) plus the 2.1 GB model volume. It is not rebuilt on the new box
+— that is ~11 GB of disk the migration simply does not need.
 
 **`~/.cua-driver` (49 MB) is deliberately excluded.** Reinstall with
 `hermes computer-use doctor` if you use the computer-use tools.
