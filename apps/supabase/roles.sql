@@ -61,4 +61,15 @@ alter role anon set statement_timeout = '3s';
 alter role authenticated set statement_timeout = '8s';
 alter role authenticator set statement_timeout = '8s';
 
+-- search_path is what lets GoTrue and storage-api FIND their own migration
+-- table. They check for schema_migrations in current_schema(); without this the
+-- role's default search_path is public, so they do not see auth.schema_migrations
+-- (76 rows, restored intact from the dump) and try to CREATE it instead, then
+-- crash-loop on 'relation "schema_migrations" already exists'. pg_dump never
+-- carries role-level settings, so this has to be re-declared here or every
+-- migration lands with supabase-auth and supabase-storage in a restart loop.
+-- Verified against the source box on 2026-09-30.
+alter role supabase_auth_admin    set search_path = auth;
+alter role supabase_storage_admin set search_path = storage;
+
 -- app.settings.jwt_secret is set per-database by supabase-env (jwt.sql)

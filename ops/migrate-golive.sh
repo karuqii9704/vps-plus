@@ -117,6 +117,22 @@ for spec in "plus|/srv/repos/plusthesite-|${BRANCH_PLUS:-main}" \
         "$(sudo -u "$DEPLOY_USER" git -C "$dir" log -1 --format='%h %s' 2>/dev/null | cut -c1-52)"
 done
 
+# Laravel needs bootstrap/cache and storage/framework/* to EXIST and be
+# writable by the FPM user (uid 33). The export deliberately excludes
+# bootstrap/cache the same way it excludes vendor/ and node_modules/, so a
+# fresh restore has no such directory and `artisan` dies with
+# "The /srv/repos/ecommerce/bootstrap/cache directory must be present and
+# writable". Recreate them with the ownership the container runs as.
+if [[ -d /srv/repos/ecommerce ]]; then
+    install -d -o www-data -g www-data /srv/repos/ecommerce/bootstrap/cache
+    install -d -o www-data -g www-data \
+        /srv/repos/ecommerce/storage/framework/cache \
+        /srv/repos/ecommerce/storage/framework/sessions \
+        /srv/repos/ecommerce/storage/framework/views \
+        /srv/repos/ecommerce/storage/logs
+    ok "ecommerce: bootstrap/cache + storage/ dibuat dengan ownership yang benar"
+fi
+
 # ------------------------------------------------------------ 8. apps + nginx
 step "8. build + start aplikasi, nginx, TLS"
 ( cd "$REPO" && ./bootstrap.sh 70-apps 80-nginx 90-tls 2>&1 | tail -12 )
@@ -139,6 +155,39 @@ fi
 # and compose refuses with "depends on undefined service postgres". The
 # containers on the old box carry both config_files for exactly this reason.
 if [[ -f "$REPO/apps/supabase.compose.yml" ]]; then
+    # Everything in the auth/ and storage/ schemas was restored by the vpsplus
+    # superuser, so supabase_auth_admin and supabase_storage_admin end up with
+    # no privileges on their own tables. information_schema.tables only lists
+    # tables the current role can access, so GoTrue's pop migrator does not see
+    # auth.schema_migrations (76 rows, restored fine), decides it must be
+    # created, and dies in a restart loop on "relation schema_migrations
+    # already exists". Reassigning ownership is what makes both stacks start.
+    # Verified against the source box 2026-09-30.
+    docker exec -i vpsplus-postgres psql -U vpsplus -d plusthesite -q >/dev/null 2>&1 <<'OWNSQL'
+DO $$
+DECLARE t record; s text;
+BEGIN
+  FOREACH s IN ARRAY ARRAY['auth','storage'] LOOP
+    FOR t IN SELECT tablename FROM pg_tables WHERE schemaname=s LOOP
+      EXECUTE format('ALTER TABLE %I.%I OWNER TO %I', s, t.tablename,
+                     CASE s WHEN 'auth' THEN 'supabase_auth_admin' ELSE 'supabase_storage_admin' END);
+    END LOOP;
+    FOR t IN SELECT viewname FROM pg_views WHERE schemaname=s LOOP
+      EXECUTE format('ALTER VIEW %I.%I OWNER TO %I', s, t.viewname,
+                     CASE s WHEN 'auth' THEN 'supabase_auth_admin' ELSE 'supabase_storage_admin' END);
+    END LOOP;
+    FOR t IN SELECT sequence_name FROM information_schema.sequences WHERE sequence_schema=s LOOP
+      EXECUTE format('ALTER SEQUENCE %I.%I OWNER TO %I', s, t.sequence_name,
+                     CASE s WHEN 'auth' THEN 'supabase_auth_admin' ELSE 'supabase_storage_admin' END);
+    END LOOP;
+    EXECUTE format('ALTER SCHEMA %I OWNER TO %I', s,
+                   CASE s WHEN 'auth' THEN 'supabase_auth_admin' ELSE 'supabase_storage_admin' END);
+  END LOOP;
+END $$;
+DROP TABLE IF EXISTS public.schema_migrations;
+OWNSQL
+    ok "supabase: kepemilikan schema auth/storage diserahkan ke role-nya"
+
     docker compose -f "$REPO/stack/docker-compose.yml" \
                    -f "$REPO/apps/supabase.compose.yml" \
                    --env-file "$REPO/apps/supabase/supabase.env" \
