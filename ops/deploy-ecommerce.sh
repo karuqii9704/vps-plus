@@ -33,9 +33,23 @@ NPM_BEFORE="$(sha256sum "$DIR/package-lock.json" | cut -d' ' -f1)"
 
 if [[ $PULL -eq 1 ]]; then
     step "git pull"
-    sudo -u plus git -C "$DIR" fetch --prune origin
-    if sudo -u plus git -C "$DIR" merge --ff-only "origin/$(sudo -u plus git -C "$DIR" rev-parse --abbrev-ref HEAD)"; then
-        ok "ecommerce at $(sudo -u plus git -C "$DIR" rev-parse --short HEAD)"
+    BRANCH="$(sudo -u plus git -C "$DIR" rev-parse --abbrev-ref HEAD)"
+    # The production branch is NOT necessarily on `origin`. ecommerce runs on
+    # polish/launch-ready, which exists only on the `mirror` remote; assuming
+    # origin made every deploy print "not a fast-forward" and silently pull
+    # nothing. Follow the branch's own upstream instead, and fall back to
+    # origin/<branch> only when the branch tracks nothing.
+    UPSTREAM="$(sudo -u plus git -C "$DIR" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
+    if [[ -n "$UPSTREAM" ]]; then
+        REMOTE="${UPSTREAM%%/*}"
+        REF="$UPSTREAM"
+    else
+        REMOTE=origin
+        REF="origin/$BRANCH"
+    fi
+    sudo -u plus git -C "$DIR" fetch --prune "$REMOTE"
+    if sudo -u plus git -C "$DIR" merge --ff-only "$REF"; then
+        ok "ecommerce at $(sudo -u plus git -C "$DIR" rev-parse --short HEAD) ($REF)"
     else
         warn "pull not a fast-forward — left the working tree alone"
     fi

@@ -125,11 +125,36 @@ plan_domain() {
     fi
 }
 
+# Which names must move is NOT just APP_KEYS. APP_KEYS lists the four apps
+# bootstrap installs (plus/studio/trilux/nalar); ecommerce, plus-office and the
+# OJS subdomain each have their own vhost but no entry there. Looping APP_KEYS
+# alone moved half the estate and left the rest answering from the OLD box --
+# the worst cutover there is, because both machines look alive and DNS ends up
+# split between them. Take every DOMAIN_*/ALT_DOMAIN_* declared in vps.conf,
+# then add DNS_EXTRA_DOMAINS for names that have no variable at all.
+declare -a TARGET=() TARGET_LABEL=()
+add_target() {
+    local d="$1" l="$2"
+    [[ -n "$d" ]] || return 0
+    local seen
+    for seen in ${TARGET[@]+"${TARGET[@]}"}; do [[ "$seen" == "$d" ]] && return 0; done
+    TARGET+=("$d"); TARGET_LABEL+=("$l")
+}
+
+mapfile -t DOM_VARS < <(compgen -v | grep -E '^(ALT_)?DOMAIN_' | sort)
+for var in ${DOM_VARS[@]+"${DOM_VARS[@]}"}; do
+    [[ -n "${!var:-}" ]] || continue
+    label="${var#ALT_}"; label="${label#DOMAIN_}"
+    [[ "$var" == ALT_* ]] && label="${label}(alt)"
+    add_target "${!var}" "$label"
+done
+for extra in ${DNS_EXTRA_DOMAINS:-}; do
+    add_target "$extra" "extra"
+done
+
 step "planning"
-for key in "${APP_KEYS[@]}"; do
-    d="$(app_var "$key" DOMAIN)"; a="$(app_var "$key" ALT_DOMAIN)"
-    if [[ -n "$d" ]]; then plan_domain "$d" "$key"; fi
-    if [[ -n "$a" ]]; then plan_domain "$a" "$key(alt)"; fi
+for i in "${!TARGET[@]}"; do
+    plan_domain "${TARGET[$i]}" "${TARGET_LABEL[$i]}"
 done
 
 [[ ${#PLAN_ACTION[@]} -gt 0 ]] || { warn "no domains configured in vps.conf"; exit 0; }
@@ -190,9 +215,8 @@ done
 
 printf '\n'
 log "Propagation takes up to the previous record's TTL. Check with:"
-for key in "${APP_KEYS[@]}"; do
-    d="$(app_var "$key" DOMAIN)"
-    if [[ -n "$d" ]]; then log "  dig +short $d"; fi
+for i in "${!TARGET[@]}"; do
+    log "  dig +short ${TARGET[$i]}"
 done
 printf '\n'
 warn "Once every name resolves here, issue the certificates:"
