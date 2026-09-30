@@ -482,10 +482,10 @@ ${ARCH_LIST}
 
 ## 3. What is NOT inside (rebuild or re-pull)
 
-- docker **images** (~20 GB, incl. ollama) — re-pulled
+- docker **images** (~8.6 GB) — re-pulled. Ollama was removed on 2026-09-28 and is **not** rebuilt
 - docker **build cache** (~38 GB) — app images are rebuilt
 - \`node_modules\`, \`.next\`, \`dist\`, \`vendor\` — reinstalled by \`bootstrap.sh\` / \`ops/deploy-*.sh\`
-- the Ollama **model volume** (~2 GB) — re-pulled on first use
+- the Ollama **model volume** — deleted alongside the image on 2026-09-28; nothing re-pulls it
 - the MySQL **datadir** — restored from \`db/mysql-*.sql.gz\`, not copied file-by-file
 - ${OJS_QA_NOTE}
 
