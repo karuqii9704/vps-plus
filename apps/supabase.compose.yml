@@ -35,7 +35,14 @@ services:
       PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@postgres:5432/plusthesite
       PGRST_DB_SCHEMAS: public,storage
       PGRST_DB_ANON_ROLE: anon
-      PGRST_DB_MAX_ROWS: "1000"
+      # A response is capped here, silently: an unbounded .select() returns only
+      # the first N rows, while an exact count (HEAD + count=exact) returns the
+      # truth. That mismatch is what made the admin dashboard disagree with its own
+      # submenus - /admin/leads reported 1000 of 2162 leads while the tile beside it
+      # showed 2162. Reads that count or aggregate rows now page explicitly
+      # (plusthesite- src/server/repositories/paged.ts); this is the backstop, not
+      # the strategy.
+      PGRST_DB_MAX_ROWS: "10000"
       PGRST_DB_EXTRA_SEARCH_PATH: public,extensions
       PGRST_ADMIN_SERVER_PORT: "3001"
       PGRST_ADMIN_SERVER_HOST: 0.0.0.0
